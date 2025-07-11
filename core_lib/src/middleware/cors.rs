@@ -1,7 +1,7 @@
 //! CORS (Cross-Origin Resource Sharing) middleware configuration
 
 use tower_http::cors::{Any, CorsLayer as TowerCorsLayer};
-use axum::http::{HeaderValue, Method};
+use axum::http::{HeaderValue, Method, HeaderName};
 
 pub fn cors_layer() -> TowerCorsLayer {
     TowerCorsLayer::new()
@@ -17,8 +17,8 @@ pub fn cors_layer() -> TowerCorsLayer {
         ])
         .allow_headers(Any)
         .expose_headers([
-            "X-Request-Id",
-            "X-Response-Time",
+            HeaderName::from_static("x-request-id"),
+            HeaderName::from_static("x-response-time"),
         ])
         .allow_credentials(true)
         .max_age(std::time::Duration::from_secs(3600))
@@ -40,9 +40,9 @@ pub fn cors_layer_production(allowed_origins: Vec<&str>) -> TowerCorsLayer {
             Method::DELETE,
         ])
         .allow_headers([
-            "content-type",
-            "authorization",
-            "accept",
+            HeaderName::from_static("content-type"),
+            HeaderName::from_static("authorization"),
+            HeaderName::from_static("accept"),
         ])
         .allow_credentials(false)
         .max_age(std::time::Duration::from_secs(3600))
