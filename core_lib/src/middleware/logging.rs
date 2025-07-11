@@ -3,26 +3,13 @@
 use axum::{
     body::Body,
     http::Request,
-    middleware::{self, Next},
+    middleware::Next,
     response::Response,
 };
 use std::time::Instant;
-use tower_http::trace::TraceLayer;
 use tracing::{info, info_span, Instrument};
 
-pub fn logging_layer() -> TraceLayer<
-    tower_http::classify::SharedClassifier<tower_http::classify::ServerErrorsAsFailures>,
-> {
-    TraceLayer::new_for_http()
-}
-
-pub fn custom_logging_middleware() -> axum::middleware::FromFnLayer<
-    impl Fn(Request<Body>, Next) -> impl std::future::Future<Output = Result<Response, std::convert::Infallible>> + Clone + Send,
-> {
-    middleware::from_fn(log_request)
-}
-
-async fn log_request(
+pub async fn log_request(
     req: Request<Body>,
     next: Next,
 ) -> Result<Response, std::convert::Infallible> {
