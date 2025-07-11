@@ -1,40 +1,70 @@
 //! Request logging middleware configuration
 
+use axum::{
+    body::Body,
+    http::Request,
+    middleware::{self, Next},
+    response::Response,
+};
+use std::time::Instant;
 use tower_http::trace::TraceLayer;
-use tracing::info_span;
+use tracing::{info, info_span, Instrument};
 
-pub fn logging_layer() -> TraceLayer {
+pub fn logging_layer() -> TraceLayer<
+    tower_http::classify::SharedClassifier<tower_http::classify::ServerErrorsAsFailures>,
+> {
     TraceLayer::new_for_http()
-        .make_span_with(|request: &axum::http::Request<_>| {
-            info_span!(
-                "http_request",
-                method = %request.method(),
-                path = %request.uri().path(),
-                query = ?request.uri().query(),
-                version = ?request.version(),
-            )
-        })
 }
 
-#[allow(dead_code)]
-pub async fn simple_logger(
-    req: axum::http::Request<axum::body::Body>,
-    next: axum::middleware::Next,
-) -> Result<axum::response::Response, std::convert::Infallible> {
+pub fn custom_logging_middleware() -> axum::middleware::FromFnLayer<
+    impl Fn(Request<Body>, Next) -> impl std::future::Future<Output = Result<Response, std::convert::Infallible>> + Clone + Send,
+> {
+    middleware::from_fn(log_request)
+}
+
+async fn log_request(
+    req: Request<Body>,
+    next: Next,
+) -> Result<Response, std::convert::Infallible> {
     let method = req.method().clone();
     let uri = req.uri().clone();
-    let start = std::time::Instant::now();
-
-    let response = next.run(req).await;
+    let version = req.version();
+    
+    let span = info_span!(
+        "http_request",
+        method = %method,
+        uri = %uri,
+        version = ?version,
+    );
+    
+    let start = Instant::now();
+    
+    let response = next.run(req).instrument(span.clone()).await;
     
     let latency = start.elapsed();
-    tracing::info!(
-        method = %method,
-        path = %uri.path(),
-        status = response.status().as_u16(),
-        latency_ms = latency.as_millis(),
-        "request processed"
-    );
-
+    let status = response.status();
+    
+    span.in_scope(|| {
+        if status.is_success() {
+            info!(
+                status = status.as_u16(),
+                latency_ms = latency.as_millis(),
+                "request completed successfully"
+            );
+        } else if status.is_client_error() {
+            info!(
+                status = status.as_u16(),
+                latency_ms = latency.as_millis(),
+                "client error"
+            );
+        } else if status.is_server_error() {
+            info!(
+                status = status.as_u16(),
+                latency_ms = latency.as_millis(),
+                "server error"
+            );
+        }
+    });
+    
     Ok(response)
 }
