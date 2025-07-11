@@ -7,9 +7,9 @@ pub mod models;
 
 pub use error::{AppError, Result};
 pub use handlers::routes::create_routes;
-pub use middleware::{cors::cors_layer, logging::custom_logging_middleware};
+pub use middleware::cors::cors_layer;
 
-use axum::Router;
+use axum::{middleware as axum_middleware, Router};
 use std::net::SocketAddr;
 use tokio::signal;
 use tracing::info;
@@ -33,7 +33,7 @@ pub fn create_app(state: AppState) -> Router {
     Router::new()
         .merge(create_routes())
         .layer(cors_layer())
-        .layer(custom_logging_middleware())
+        .layer(axum_middleware::from_fn(middleware::logging::log_request))
         .with_state(state)
 }
 
