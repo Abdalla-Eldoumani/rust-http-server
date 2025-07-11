@@ -4,8 +4,10 @@ use tower_http::trace::TraceLayer;
 use tracing::info_span;
 use http::Request;
 use std::time::Duration;
+use tower::Layer;
+use axum::Router;
 
-pub fn logging_layer() -> TraceLayer<tower_http::classify::SharedClassifier<tower_http::classify::ServerErrorsAsFailures>> {
+pub fn logging_layer() -> impl Layer<Router> + Clone + Send + 'static {
     TraceLayer::new_for_http()
         .make_span_with(|request: &Request<_>| {
             info_span!(
