@@ -1,6 +1,15 @@
-[package]
-name = "rust-http-server"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+members = ["core_lib", "http_server"]
+resolver = "2"
 
-[dependencies]
+[workspace.dependencies]
+tokio = { version = "1.35", features = ["full"] }
+axum = { version = "0.7", features = ["macros", "json", "form"] }
+tower = { version = "0.4", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+thiserror = "1.0"
+anyhow = "1.0"
