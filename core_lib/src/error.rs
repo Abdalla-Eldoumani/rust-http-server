@@ -24,6 +24,9 @@ pub enum AppError {
     #[error("Unauthorized")]
     Unauthorized,
 
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
+
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
@@ -35,6 +38,10 @@ impl IntoResponse for AppError {
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()),
             AppError::InternalServerError => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+            }
+            AppError::IoError(err) => {
+                tracing::error!("IO error: {:?}", err);
                 (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
             }
             AppError::Other(err) => {
