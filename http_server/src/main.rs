@@ -3,7 +3,7 @@
 use anyhow::Result;
 use core_lib::{create_app, run_server, AppState};
 use std::net::SocketAddr;
-use tracing::{info, Level};
+use tracing::info;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 #[tokio::main]
