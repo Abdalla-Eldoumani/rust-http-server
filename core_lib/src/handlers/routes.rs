@@ -7,9 +7,9 @@ use crate::{
 };
 use axum::{
     extract::{Form, Path, Query, State},
-    http::{HeaderMap, Method, StatusCode},
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
-    routing::{delete, get, patch, post, put},
+    routing::get,
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -28,7 +28,7 @@ pub fn create_routes() -> Router<AppState> {
                 .delete(handle_delete_item)
                 .patch(handle_patch_item),
         )
-        .route("/api/form", post(handle_form_submit))
+        .route("/api/form", axum::routing::post(handle_form_submit))
         .route("/api/head", axum::routing::head(handle_head))
         .route("/api/options", axum::routing::options(handle_options))
 }
