@@ -35,8 +35,8 @@ pub fn create_app(state: AppState) -> Router {
         .merge(create_routes())
         .layer(
             ServiceBuilder::new()
-                .layer(cors_layer())
-                .layer(logging_layer()),
+                .layer(logging_layer())
+                .layer(cors_layer()),
         )
         .with_state(state)
 }
@@ -48,8 +48,9 @@ pub async fn run_server(app: Router, addr: SocketAddr) -> Result<()> {
     
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
-        .await
-        .map_err(Into::into)
+        .await?;
+    
+    Ok(())
 }
 
 async fn shutdown_signal() {
