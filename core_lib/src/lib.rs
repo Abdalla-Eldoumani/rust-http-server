@@ -12,7 +12,6 @@ pub use middleware::{cors::cors_layer, logging::logging_layer};
 use axum::Router;
 use std::net::SocketAddr;
 use tokio::signal;
-use tower::ServiceBuilder;
 use tracing::info;
 
 #[derive(Clone)]
@@ -33,11 +32,8 @@ impl Default for AppState {
 pub fn create_app(state: AppState) -> Router {
     Router::new()
         .merge(create_routes())
-        .layer(
-            ServiceBuilder::new()
-                .layer(logging_layer())
-                .layer(cors_layer()),
-        )
+        .layer(cors_layer())
+        .layer(logging_layer())
         .with_state(state)
 }
 
