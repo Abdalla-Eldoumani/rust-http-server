@@ -1,13 +1,11 @@
 //! Request logging middleware configuration
 
-use tower_http::trace::{self, TraceLayer};
+use tower_http::trace::TraceLayer;
 use tracing::info_span;
 use http::Request;
 use std::time::Duration;
 
-pub fn logging_layer() -> TraceLayer<
-    tower_http::classify::SharedClassifier<tower_http::classify::ServerErrorsAsFailures>,
-> {
+pub fn logging_layer() -> TraceLayer<tower_http::classify::SharedClassifier<tower_http::classify::ServerErrorsAsFailures>> {
     TraceLayer::new_for_http()
         .make_span_with(|request: &Request<_>| {
             info_span!(
