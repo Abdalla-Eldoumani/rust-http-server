@@ -4,10 +4,12 @@ pub mod error;
 pub mod handlers;
 pub mod middleware;
 pub mod models;
+pub mod store;
 
 pub use error::{AppError, Result};
 pub use handlers::routes::create_routes;
-pub use middleware::cors::cors_layer;
+pub use middleware::cors::{cors_layer, cors_layer_permissive};
+pub use store::DataStore;
 
 use axum::{middleware as axum_middleware, Router};
 use std::net::SocketAddr;
@@ -18,6 +20,7 @@ use tracing::info;
 pub struct AppState {
     pub app_name: String,
     pub version: String,
+    pub store: DataStore,
 }
 
 impl Default for AppState {
@@ -25,6 +28,7 @@ impl Default for AppState {
         Self {
             app_name: "Rust HTTP Server".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
+            store: DataStore::new(),
         }
     }
 }
