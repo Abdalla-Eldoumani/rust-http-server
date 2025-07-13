@@ -4,11 +4,12 @@ use crate::{
     error::{AppError, Result},
     models::request::{ApiResponse, FormPayload},
     AppState,
+    metrics::MetricsSnapshot,
 };
 use axum::{
     extract::{Form, Path, Query, State},
     http::{HeaderMap, StatusCode},
-    response::IntoResponse,
+    response::{IntoResponse, Html, Response},
     routing::get,
     Json, Router,
 };
@@ -20,8 +21,11 @@ pub fn create_routes() -> Router<AppState> {
     Router::new()
         .route("/", get(handle_root))
         .route("/health", get(handle_health))
+        .route("/dashboard", get(handle_dashboard))
         .route("/api/stats", get(handle_stats))
+        .route("/api/metrics", get(handle_metrics))
         .route("/api/items", get(handle_get_items).post(handle_post_item))
+        .route("/api/items/export", get(handle_export_items))
         .route(
             "/api/items/:id",
             get(handle_get_item)
@@ -270,4 +274,270 @@ async fn handle_options() -> impl IntoResponse {
             }
         }
     }))))
+}
+
+async fn handle_dashboard() -> impl IntoResponse {
+    Html(r#"
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Rust HTTP Server - Dashboard</title>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                margin: 0;
+                padding: 20px;
+                background: #f5f5f5;
+            }
+            .container {
+                max-width: 1200px;
+                margin: 0 auto;
+            }
+            h1 {
+                color: #333;
+                margin-bottom: 30px;
+            }
+            .metrics-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                gap: 20px;
+                margin-bottom: 30px;
+            }
+            .metric-card {
+                background: white;
+                border-radius: 8px;
+                padding: 20px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            .metric-label {
+                font-size: 14px;
+                color: #666;
+                margin-bottom: 5px;
+            }
+            .metric-value {
+                font-size: 32px;
+                font-weight: bold;
+                color: #333;
+            }
+            .metric-value.success { color: #10b981; }
+            .metric-value.error { color: #ef4444; }
+            .metric-value.warning { color: #f59e0b; }
+            .chart-container {
+                background: white;
+                border-radius: 8px;
+                padding: 20px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                margin-bottom: 20px;
+            }
+            .chart-title {
+                font-size: 18px;
+                font-weight: bold;
+                margin-bottom: 15px;
+                color: #333;
+            }
+            #responseTimeChart {
+                max-height: 300px;
+            }
+            .endpoint-list {
+                background: white;
+                border-radius: 8px;
+                padding: 20px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            .endpoint-item {
+                display: flex;
+                justify-content: space-between;
+                padding: 10px 0;
+                border-bottom: 1px solid #eee;
+            }
+            .endpoint-item:last-child {
+                border-bottom: none;
+            }
+            .refresh-info {
+                text-align: center;
+                color: #666;
+                font-size: 14px;
+                margin-top: 20px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🚀 Rust HTTP Server Dashboard</h1>
+            
+            <div class="metrics-grid" id="metricsGrid">
+                <!-- Metrics will be populated here -->
+            </div>
+            
+            <div class="chart-container">
+                <div class="chart-title">Response Time Trend (Last Hour)</div>
+                <canvas id="responseTimeChart"></canvas>
+            </div>
+            
+            <div class="chart-container">
+                <div class="chart-title">Request Methods Distribution</div>
+                <canvas id="methodChart"></canvas>
+            </div>
+            
+            <div class="endpoint-list">
+                <div class="chart-title">Top Endpoints</div>
+                <div id="endpointsList"></div>
+            </div>
+            
+            <div class="refresh-info">Auto-refreshing every 2 seconds...</div>
+        </div>
+
+        <script>
+        // Initialize charts
+        const responseTimeCtx = document.getElementById('responseTimeChart').getContext('2d');
+        const responseTimeChart = new Chart(responseTimeCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Response Time (ms)',
+                    data: [],
+                    borderColor: '#3b82f6',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Response Time (ms)'
+                        }
+                    }
+                }
+            }
+        });
+
+        const methodCtx = document.getElementById('methodChart').getContext('2d');
+        const methodChart = new Chart(methodCtx, {
+            type: 'doughnut',
+            data: {
+                labels: [],
+                datasets: [{
+                    data: [],
+                    backgroundColor: [
+                        '#3b82f6',
+                        '#10b981',
+                        '#f59e0b',
+                        '#ef4444',
+                        '#8b5cf6',
+                        '#ec4899',
+                        '#14b8a6'
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false
+            }
+        });
+
+        async function updateDashboard() {
+            try {
+                const response = await fetch('/api/metrics');
+                const result = await response.json();
+                const metrics = result.data;
+                
+                // Update metric cards
+                document.getElementById('metricsGrid').innerHTML = `
+                    <div class="metric-card">
+                        <div class="metric-label">Total Requests</div>
+                        <div class="metric-value">${metrics.total_requests.toLocaleString()}</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Success Rate</div>
+                        <div class="metric-value success">${(100 - metrics.error_rate).toFixed(1)}%</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Error Rate</div>
+                        <div class="metric-value ${metrics.error_rate > 5 ? 'error' : 'warning'}">${metrics.error_rate.toFixed(1)}%</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Avg Response Time</div>
+                        <div class="metric-value">${metrics.average_response_time_ms.toFixed(0)}ms</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Requests/Second</div>
+                        <div class="metric-value">${metrics.requests_per_second.toFixed(2)}</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Uptime</div>
+                        <div class="metric-value">${formatUptime(metrics.uptime_seconds)}</div>
+                    </div>
+                `;
+                
+                // Update response time chart
+                const timeLabels = metrics.last_hour_response_times
+                    .slice(-20)
+                    .map(rt => new Date(rt.timestamp).toLocaleTimeString());
+                const timeData = metrics.last_hour_response_times
+                    .slice(-20)
+                    .map(rt => rt.duration_ms);
+                
+                responseTimeChart.data.labels = timeLabels;
+                responseTimeChart.data.datasets[0].data = timeData;
+                responseTimeChart.update();
+                
+                // Update method chart
+                const methods = Object.entries(metrics.requests_by_method);
+                methodChart.data.labels = methods.map(([method]) => method);
+                methodChart.data.datasets[0].data = methods.map(([, count]) => count);
+                methodChart.update();
+                
+                // Update endpoints list
+                const endpointsList = metrics.requests_by_endpoint
+                    .slice(0, 10)
+                    .map(ep => `
+                        <div class="endpoint-item">
+                            <span>${ep.endpoint}</span>
+                            <span>${ep.count} (${ep.percentage.toFixed(1)}%)</span>
+                        </div>
+                    `).join('');
+                document.getElementById('endpointsList').innerHTML = endpointsList;
+                
+            } catch (error) {
+                console.error('Failed to update dashboard:', error);
+            }
+        }
+
+        function formatUptime(seconds) {
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const secs = seconds % 60;
+            
+            if (hours > 0) {
+                return `${hours}h ${minutes}m`;
+            } else if (minutes > 0) {
+                return `${minutes}m ${secs}s`;
+            } else {
+                return `${secs}s`;
+            }
+        }
+
+        // Update immediately and then every 2 seconds
+        updateDashboard();
+        setInterval(updateDashboard, 2000);
+        </script>
+    </body>
+    </html>
+    "#)
+}
+
+async fn handle_metrics(State(state): State<AppState>) -> Result<impl IntoResponse> {
+    let item_count = state.store.get_items(None, None)?.len();
+    let snapshot = state.metrics.get_snapshot(item_count);
+    
+    Ok(Json(ApiResponse::success(snapshot)))
 }
