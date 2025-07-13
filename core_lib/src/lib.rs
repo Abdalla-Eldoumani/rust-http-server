@@ -47,15 +47,42 @@ impl Default for AppState {
 pub fn create_app(state: AppState) -> Router {
     Router::new()
         .merge(create_routes())
-        .layer(cors_layer())
+        .layer(cors_layer_permissive())
+        .layer(axum_middleware::from_fn_with_state(
+            state.rate_limiter.clone(),
+            middleware::rate_limit::rate_limit_middleware,
+        ))
+        .layer(axum_middleware::from_fn(metrics_middleware))
         .layer(axum_middleware::from_fn(middleware::logging::log_request))
         .with_state(state)
+}
+
+async fn metrics_middleware<B>(
+    State(state): State<AppState>,
+    request: Request<B>,
+    next: Next<B>,
+) -> Result<Response, std::convert::Infallible> {
+    let method = request.method().to_string();
+    let path = request.uri().path().to_string();
+    let start = std::time::Instant::now();
+    
+    state.metrics.record_request(&method, &path);
+    
+    let response = next.run(request).await;
+    
+    let duration = start.elapsed();
+    let status = response.status().as_u16();
+    state.metrics.record_response(&path, duration.as_millis(), status);
+    
+    Ok(response)
 }
 
 pub async fn run_server(app: Router, addr: SocketAddr) -> Result<()> {
     info!("Starting server on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
+    
+    let app = app.into_make_service_with_connect_info::<SocketAddr>();
     
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
