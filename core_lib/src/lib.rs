@@ -17,10 +17,11 @@ pub use middleware::rate_limit::RateLimiter;
 use axum::{
     middleware as axum_middleware,
     Router,
-    extract::{ConnectInfo, State},
+    extract::State,
     response::Response,
     http::Request,
     middleware::Next,
+    body::Body,
 };
 use std::net::SocketAddr;
 use tokio::signal;
@@ -55,16 +56,19 @@ pub fn create_app(state: AppState) -> Router {
             state.rate_limiter.clone(),
             middleware::rate_limit::rate_limit_middleware,
         ))
-        .layer(axum_middleware::from_fn(metrics_middleware))
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            metrics_middleware,
+        ))
         .layer(axum_middleware::from_fn(middleware::logging::log_request))
         .with_state(state)
 }
 
-async fn metrics_middleware<B>(
+async fn metrics_middleware(
     State(state): State<AppState>,
-    request: Request<B>,
-    next: Next<B>,
-) -> Result<Response, std::convert::Infallible> {
+    request: Request<Body>,
+    next: Next,
+) -> std::result::Result<Response, std::convert::Infallible> {
     let method = request.method().to_string();
     let path = request.uri().path().to_string();
     let start = std::time::Instant::now();
