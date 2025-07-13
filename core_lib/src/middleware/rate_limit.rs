@@ -11,6 +11,7 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
     Json,
+    body::Body,
 };
 use serde_json::json;
 use std::net::SocketAddr;
@@ -105,11 +106,11 @@ impl IntoResponse for RateLimitError {
     }
 }
 
-pub async fn rate_limit_middleware<B>(
+pub async fn rate_limit_middleware(
     State(limiter): State<RateLimiter>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    mut request: Request<B>,
-    next: Next<B>,
+    mut request: Request<Body>,
+    next: Next,
 ) -> Result<Response, RateLimitError> {
     let ip = addr.ip();
     
