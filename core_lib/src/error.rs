@@ -27,6 +27,9 @@ pub enum AppError {
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 
+    #[error("JSON error: {0}")]
+    JsonError(#[from] serde_json::Error),
+
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
@@ -43,6 +46,10 @@ impl IntoResponse for AppError {
             AppError::IoError(err) => {
                 tracing::error!("IO error: {:?}", err);
                 (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+            }
+            AppError::JsonError(err) => {
+                tracing::error!("JSON error: {:?}", err);
+                (StatusCode::BAD_REQUEST, "Invalid JSON data".to_string())
             }
             AppError::Other(err) => {
                 tracing::error!("Unexpected error: {:?}", err);
