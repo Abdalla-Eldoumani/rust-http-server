@@ -541,3 +541,59 @@ async fn handle_metrics(State(state): State<AppState>) -> Result<impl IntoRespon
     
     Ok(Json(ApiResponse::success(snapshot)))
 }
+
+async fn handle_export_items(
+    State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<impl IntoResponse> {
+    let format = params.get("format").map(|s| s.as_str()).unwrap_or("json");
+    let items = state.store.get_items(None, None)?;
+    
+    match format {
+        "csv" => {
+            let mut csv = String::from("id,name,description,tags,created_at,updated_at\n");
+            for item in items {
+                csv.push_str(&format!(
+                    "{},{},\"{}\",\"{}\",{},{}\n",
+                    item.id,
+                    item.name,
+                    item.description.unwrap_or_default().replace("\"", "\"\""),
+                    item.tags.join(";"),
+                    item.created_at.to_rfc3339(),
+                    item.updated_at.to_rfc3339()
+                ));
+            }
+            Ok((
+                StatusCode::OK,
+                [
+                    ("Content-Type", "text/csv"),
+                    ("Content-Disposition", "attachment; filename=\"items_export.csv\"")
+                ],
+                csv,
+            ).into_response())
+        },
+        "yaml" => {
+            let yaml = serde_yaml::to_string(&items)
+                .map_err(|e| AppError::Other(anyhow::anyhow!("Failed to serialize to YAML: {}", e)))?;
+            Ok((
+                StatusCode::OK,
+                [
+                    ("Content-Type", "text/yaml"),
+                    ("Content-Disposition", "attachment; filename=\"items_export.yaml\"")
+                ],
+                yaml,
+            ).into_response())
+        },
+        _ => {
+            let json = serde_json::to_string_pretty(&items)?;
+            Ok((
+                StatusCode::OK,
+                [
+                    ("Content-Type", "application/json"),
+                    ("Content-Disposition", "attachment; filename=\"items_export.json\"")
+                ],
+                json,
+            ).into_response())
+        }
+    }
+}
