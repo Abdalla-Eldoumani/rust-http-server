@@ -90,11 +90,12 @@ impl MetricsCollector {
         times.push(response_time);
         
         if times.len() > 1000 {
-            times.drain(0..times.len() - 1000);
+            let drain_end = times.len() - 1000;
+            times.drain(0..drain_end);
         }
     }
 
-    pub fn get_snapshot(&self, item_count: usize) -> MetricsSnapshot {
+    pub fn get_snapshot(&self, _item_count: usize) -> MetricsSnapshot {
         let total = self.total_requests.load(Ordering::Relaxed);
         let successful = self.successful_requests.load(Ordering::Relaxed);
         let failed = self.failed_requests.load(Ordering::Relaxed);
