@@ -5,13 +5,20 @@ pub mod handlers;
 pub mod middleware;
 pub mod models;
 pub mod store;
+pub mod metrics;
 
 pub use error::{AppError, Result};
 pub use handlers::routes::create_routes;
 pub use middleware::cors::{cors_layer, cors_layer_permissive};
 pub use store::DataStore;
+pub use metrics::MetricsCollector;
+pub use middleware::rate_limit::RateLimiter;
 
-use axum::{middleware as axum_middleware, Router};
+use axum::{
+    middleware as axum_middleware,
+    Router,
+    extract::ConnectInfo,
+};
 use std::net::SocketAddr;
 use tokio::signal;
 use tracing::info;
@@ -21,6 +28,8 @@ pub struct AppState {
     pub app_name: String,
     pub version: String,
     pub store: DataStore,
+    pub metrics: MetricsCollector,
+    pub rate_limiter: RateLimiter,
 }
 
 impl Default for AppState {
@@ -29,6 +38,8 @@ impl Default for AppState {
             app_name: "Rust HTTP Server".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             store: DataStore::new(),
+            metrics: MetricsCollector::new(),
+            rate_limiter: RateLimiter::new(100, 60),
         }
     }
 }
