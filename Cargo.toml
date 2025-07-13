@@ -17,3 +17,4 @@ anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 http = "1.0"
 uuid = { version = "1.6", features = ["v4", "serde"] }
+parking_lot = "0.12"
