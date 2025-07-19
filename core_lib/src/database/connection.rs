@@ -23,16 +23,16 @@ impl DatabaseManager {
             .await
             .map_err(|e| {
                 error!("Database health check failed: {}", e);
-                AppError::Database(e)
+                AppError::from(e)
             })?;
 
         let test_value: i32 = row.try_get("test")
-            .map_err(|e| AppError::Database(e))?;
+            .map_err(AppError::from)?;
 
         if test_value == 1 {
             Ok(())
         } else {
-            Err(AppError::Database(sqlx::Error::RowNotFound))
+            Err(AppError::from(sqlx::Error::RowNotFound))
         }
     }
 
@@ -44,7 +44,7 @@ impl DatabaseManager {
         "#)
         .fetch_one(&self.pool)
         .await
-        .map_err(AppError::Database)?;
+        .map_err(AppError::from)?;
 
         Ok(DatabaseStats {
             table_count: row.try_get("table_count").unwrap_or(0),
@@ -76,23 +76,23 @@ pub async fn get_database_pool(database_url: &str) -> Result<SqlitePool> {
         .await
         .map_err(|e| {
             error!("Failed to create database pool: {}", e);
-            AppError::Database(e)
+            AppError::from(e)
         })?;
 
     sqlx::query("PRAGMA foreign_keys = ON")
         .execute(&pool)
         .await
-        .map_err(AppError::Database)?;
+        .map_err(AppError::from)?;
 
     sqlx::query("PRAGMA journal_mode = WAL")
         .execute(&pool)
         .await
-        .map_err(AppError::Database)?;
+        .map_err(AppError::from)?;
 
     sqlx::query("PRAGMA synchronous = NORMAL")
         .execute(&pool)
         .await
-        .map_err(AppError::Database)?;
+        .map_err(AppError::from)?;
 
     info!("Database connection pool created successfully");
     Ok(pool)
