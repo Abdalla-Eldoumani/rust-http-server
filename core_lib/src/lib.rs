@@ -10,6 +10,7 @@ pub mod models;
 pub mod services;
 pub mod store;
 pub mod metrics;
+pub mod websocket;
 
 pub use auth::{AuthService, JwtService, UserRepository, UserRepositoryTrait};
 pub use config::AppConfig;
@@ -22,6 +23,7 @@ pub use middleware::auth::{AuthUser, jwt_auth_middleware, optional_jwt_auth_midd
 pub use store::DataStore;
 pub use metrics::MetricsCollector;
 pub use middleware::rate_limit::RateLimiter;
+pub use websocket::{WebSocketManager, websocket_handler};
 
 use axum::{
     middleware as axum_middleware,
@@ -46,6 +48,7 @@ pub struct AppState {
     pub metrics: MetricsCollector,
     pub rate_limiter: RateLimiter,
     pub auth_service: Option<AuthService>,
+    pub websocket_manager: Option<WebSocketManager>,
 }
 
 impl Default for AppState {
@@ -62,6 +65,7 @@ impl Default for AppState {
             metrics: MetricsCollector::new(),
             rate_limiter: RateLimiter::new(100, 60),
             auth_service: None,
+            websocket_manager: None,
         }
     }
 }
@@ -80,11 +84,17 @@ impl AppState {
             metrics: MetricsCollector::new(),
             rate_limiter: RateLimiter::new(100, 60),
             auth_service: None,
+            websocket_manager: None,
         }
     }
 
     pub fn with_auth(mut self, auth_service: AuthService) -> Self {
         self.auth_service = Some(auth_service);
+        self
+    }
+
+    pub fn with_websocket(mut self, websocket_manager: WebSocketManager) -> Self {
+        self.websocket_manager = Some(websocket_manager);
         self
     }
 
