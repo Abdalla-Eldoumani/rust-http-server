@@ -1,7 +1,7 @@
 //! Main entry point for the HTTP server binary
 
 use anyhow::Result;
-use core_lib::{create_app, run_server, AppState, AppConfig};
+use core_lib::{create_app, run_server, AppState, AppConfig, DatabaseManager, ItemRepository, get_database_pool, run_migrations};
 use std::net::SocketAddr;
 use tracing::info;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -26,8 +26,32 @@ async fn main() -> Result<()> {
     info!("Initializing Rust HTTP Server");
     info!("Environment: {}", std::env::var("RUST_ENV").unwrap_or_else(|_| "development".to_string()));
 
-    let state = AppState::default();
+    let state = if config.database.url != "sqlite::memory:" && !config.database.url.is_empty() {
+        info!("Initializing database connection: {}", config.database.url);
+        
+        match initialize_database(&config.database.url).await {
+            Ok((db_manager, item_repository)) => {
+                info!("Database initialized successfully");
+                let state = AppState::with_database(db_manager, item_repository);
+                
+                if let Err(e) = state.migrate_to_database_if_needed().await {
+                    tracing::warn!("Failed to migrate data to database: {}", e);
+                }
+                
+                state
+            }
+            Err(e) => {
+                tracing::warn!("Failed to initialize database, falling back to in-memory store: {}", e);
+                AppState::default()
+            }
+        }
+    } else {
+        info!("Using in-memory data store");
+        AppState::default()
+    };
+
     info!("App: {} v{}", state.app_name, state.version);
+    info!("Data storage: {}", if state.item_service.is_using_database() { "SQLite Database" } else { "In-Memory Store" });
 
     let app = create_app(state);
 
@@ -35,6 +59,19 @@ async fn main() -> Result<()> {
 
     info!("Server shutdown complete");
     Ok(())
+}
+
+async fn initialize_database(database_url: &str) -> Result<(DatabaseManager, ItemRepository)> {
+    let pool = get_database_pool(database_url).await
+        .map_err(|e| anyhow::anyhow!("Failed to create database pool: {}", e))?;
+
+    run_migrations(pool.clone()).await
+        .map_err(|e| anyhow::anyhow!("Failed to run database migrations: {}", e))?;
+
+    let db_manager = DatabaseManager::new(pool.clone());
+    let item_repository = ItemRepository::new(pool);
+
+    Ok((db_manager, item_repository))
 }
 
 fn init_tracing() {
