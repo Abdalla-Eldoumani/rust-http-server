@@ -35,20 +35,35 @@ pub fn create_routes() -> Router<AppState> {
         .route("/api/form", axum::routing::post(handle_form_submit))
         .route("/api/head", axum::routing::head(handle_head))
         .route("/api/options", axum::routing::options(handle_options))
+        .nest("/auth", create_auth_routes_with_middleware())
 }
 
 async fn handle_root(State(state): State<AppState>) -> impl IntoResponse {
+    let mut endpoints = serde_json::json!({
+        "health": "/health",
+        "stats": "/api/stats",
+        "items": "/api/items",
+        "item": "/api/items/{id}",
+        "form": "/api/form"
+    });
+
+    if state.auth_service.is_some() {
+        endpoints["auth"] = serde_json::json!({
+            "register": "/auth/register",
+            "login": "/auth/login",
+            "refresh": "/auth/refresh",
+            "logout": "/auth/logout",
+            "me": "/auth/me",
+            "users": "/auth/users/{id}"
+        });
+    }
+
     Json(ApiResponse::success(serde_json::json!({
         "app": state.app_name,
         "version": state.version,
         "message": "Welcome to the Rust HTTP Server",
-        "endpoints": {
-            "health": "/health",
-            "stats": "/api/stats",
-            "items": "/api/items",
-            "item": "/api/items/{id}",
-            "form": "/api/form"
-        }
+        "authentication_enabled": state.auth_service.is_some(),
+        "endpoints": endpoints
     })))
 }
 
@@ -880,4 +895,19 @@ async fn handle_export_items(
             ).into_response())
         }
     }
+}
+fn create_auth_routes_with_middleware() -> Router<AppState> {
+    use crate::handlers::auth::{
+        register_user, login_user, refresh_token, logout_user, 
+        get_current_user, get_user_by_id
+    };
+    use axum::routing::{get, post};
+
+    Router::new()
+        .route("/register", post(register_user))
+        .route("/login", post(login_user))
+        .route("/refresh", post(refresh_token))
+        .route("/logout", post(logout_user))
+        .route("/me", get(get_current_user))
+        .route("/users/:id", get(get_user_by_id))
 }
