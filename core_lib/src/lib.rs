@@ -18,6 +18,7 @@ pub use services::ItemService;
 pub use error::{AppError, Result};
 pub use handlers::routes::create_routes;
 pub use middleware::cors::{cors_layer, cors_layer_permissive};
+pub use middleware::auth::{AuthUser, jwt_auth_middleware, optional_jwt_auth_middleware, require_admin, require_self_or_admin};
 pub use store::DataStore;
 pub use metrics::MetricsCollector;
 pub use middleware::rate_limit::RateLimiter;
@@ -44,6 +45,7 @@ pub struct AppState {
     pub item_service: ItemService,
     pub metrics: MetricsCollector,
     pub rate_limiter: RateLimiter,
+    pub auth_service: Option<AuthService>,
 }
 
 impl Default for AppState {
@@ -59,6 +61,7 @@ impl Default for AppState {
             item_service,
             metrics: MetricsCollector::new(),
             rate_limiter: RateLimiter::new(100, 60),
+            auth_service: None,
         }
     }
 }
@@ -76,7 +79,13 @@ impl AppState {
             item_service,
             metrics: MetricsCollector::new(),
             rate_limiter: RateLimiter::new(100, 60),
+            auth_service: None,
         }
+    }
+
+    pub fn with_auth(mut self, auth_service: AuthService) -> Self {
+        self.auth_service = Some(auth_service);
+        self
     }
 
     pub async fn migrate_to_database_if_needed(&self) -> Result<()> {
@@ -87,7 +96,7 @@ impl AppState {
                 info!("Starting automatic migration from in-memory store to database");
                 let result = migration_service.migrate_from_memory_store(&self.store).await?;
                 info!("Migration completed: {} items migrated successfully, {} failed", 
-                      result.successful_migrations, result.failed_count);
+                        result.successful_migrations, result.failed_count);
             }
         }
         Ok(())
