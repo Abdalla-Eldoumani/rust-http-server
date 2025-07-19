@@ -51,7 +51,7 @@ impl MigrationManager {
         "#)
         .execute(&self.pool)
         .await
-        .map_err(AppError::Database)?;
+        .map_err(AppError::from)?;
 
         Ok(())
     }
@@ -60,7 +60,7 @@ impl MigrationManager {
         let result = sqlx::query("SELECT MAX(version) as version FROM _migrations")
             .fetch_optional(&self.pool)
             .await
-            .map_err(AppError::Database)?;
+            .map_err(AppError::from)?;
 
         match result {
             Some(row) => Ok(row.try_get("version").unwrap_or(0)),
@@ -69,7 +69,7 @@ impl MigrationManager {
     }
 
     async fn apply_migration(&self, migration: &Migration) -> Result<()> {
-        let mut tx = self.pool.begin().await.map_err(AppError::Database)?;
+        let mut tx = self.pool.begin().await.map_err(AppError::from)?;
 
         for statement in &migration.sql_statements {
             sqlx::query(statement)
@@ -77,7 +77,7 @@ impl MigrationManager {
                 .await
                 .map_err(|e| {
                     error!("Failed to execute migration statement: {}", e);
-                    AppError::Database(e)
+                    AppError::from(e)
                 })?;
         }
 
@@ -90,9 +90,9 @@ impl MigrationManager {
         .bind(&migration.checksum)
         .execute(&mut *tx)
         .await
-        .map_err(AppError::Database)?;
+        .map_err(AppError::from)?;
 
-        tx.commit().await.map_err(AppError::Database)?;
+        tx.commit().await.map_err(AppError::from)?;
         Ok(())
     }
 
@@ -256,7 +256,7 @@ impl MigrationManager {
         "#)
         .fetch_all(&self.pool)
         .await
-        .map_err(AppError::Database)?;
+        .map_err(AppError::from)?;
 
         let mut records = Vec::new();
         for row in rows {
