@@ -24,6 +24,9 @@ pub enum AppError {
     #[error("Unauthorized")]
     Unauthorized,
 
+    #[error("Database error: {0}")]
+    Database(#[from] sqlx::Error),
+
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 
@@ -42,6 +45,16 @@ impl IntoResponse for AppError {
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()),
             AppError::InternalServerError => {
                 (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+            }
+            AppError::Database(err) => {
+                tracing::error!("Database error: {:?}", err);
+                match err {
+                    sqlx::Error::RowNotFound => (StatusCode::NOT_FOUND, "Resource not found".to_string()),
+                    sqlx::Error::Database(db_err) if db_err.is_unique_violation() => {
+                        (StatusCode::CONFLICT, "Resource already exists".to_string())
+                    }
+                    _ => (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string()),
+                }
             }
             AppError::IoError(err) => {
                 tracing::error!("IO error: {:?}", err);
