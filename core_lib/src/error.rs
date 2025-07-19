@@ -33,6 +33,9 @@ pub enum AppError {
     #[error("Database error: {0}")]
     Database(String),
 
+    #[error("WebSocket error: {0}")]
+    WebSocket(String),
+
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 
@@ -58,6 +61,10 @@ impl IntoResponse for AppError {
                 tracing::error!("Database error: {}", msg);
                 (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string())
             }
+            AppError::WebSocket(msg) => {
+                tracing::error!("WebSocket error: {}", msg);
+                (StatusCode::INTERNAL_SERVER_ERROR, "WebSocket error".to_string())
+            }
             AppError::IoError(err) => {
                 tracing::error!("IO error: {:?}", err);
                 (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
@@ -81,7 +88,6 @@ impl IntoResponse for AppError {
     }
 }
 
-// Helper to convert sqlx::Error to AppError::Database
 impl From<sqlx::Error> for AppError {
     fn from(err: sqlx::Error) -> Self {
         match err {
