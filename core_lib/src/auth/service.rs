@@ -27,6 +27,10 @@ impl AuthService {
         }
     }
 
+    pub fn jwt_service(&self) -> &JwtService {
+        &self.jwt_service
+    }
+
     pub async fn register_user(&self, request: CreateUserRequest) -> Result<UserResponse, AppError> {
         self.validate_registration_request(&request)?;
 
