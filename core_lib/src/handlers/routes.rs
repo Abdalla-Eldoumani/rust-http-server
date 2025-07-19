@@ -53,17 +53,32 @@ async fn handle_root(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 async fn handle_health(State(state): State<AppState>) -> impl IntoResponse {
-    let stats = state.store.get_stats().unwrap_or_default();
+    let stats = state.item_service.get_stats().await.unwrap_or_default();
     
-    Json(ApiResponse::success(serde_json::json!({
+    let mut health_info = serde_json::json!({
         "status": "healthy",
         "timestamp": chrono::Utc::now().timestamp(),
-        "store_stats": stats
-    })))
+        "store_stats": stats,
+        "using_database": state.item_service.is_using_database()
+    });
+
+    if let Some(db_manager) = &state.db_manager {
+        match db_manager.health_check().await {
+            Ok(_) => {
+                health_info["database_status"] = serde_json::Value::String("healthy".to_string());
+            }
+            Err(e) => {
+                health_info["database_status"] = serde_json::Value::String("unhealthy".to_string());
+                health_info["database_error"] = serde_json::Value::String(e.to_string());
+            }
+        }
+    }
+    
+    Json(ApiResponse::success(health_info))
 }
 
 async fn handle_stats(State(state): State<AppState>) -> Result<impl IntoResponse> {
-    let stats = state.store.get_stats()?;
+    let stats = state.item_service.get_stats().await?;
     Ok(Json(ApiResponse::success(stats)))
 }
 
@@ -79,13 +94,14 @@ async fn handle_get_items(
 ) -> Result<impl IntoResponse> {
     info!("GET /api/items - limit: {:?}, offset: {:?}", params.limit, params.offset);
     
-    let items = state.store.get_items(params.limit, params.offset)?;
+    let items = state.item_service.get_items(params.limit, params.offset).await?;
     
     Ok(Json(ApiResponse::success(serde_json::json!({
         "items": items,
         "count": items.len(),
         "limit": params.limit,
-        "offset": params.offset.unwrap_or(0)
+        "offset": params.offset.unwrap_or(0),
+        "source": if state.item_service.is_using_database() { "database" } else { "memory" }
     }))))
 }
 
@@ -99,7 +115,7 @@ async fn handle_get_item(
         return Err(AppError::BadRequest("Invalid item ID".to_string()));
     }
 
-    let item = state.store.get_item(id)?;
+    let item = state.item_service.get_item(id).await?;
     Ok(Json(ApiResponse::success(item)))
 }
 
@@ -125,12 +141,12 @@ async fn handle_post_item(
         return Err(AppError::BadRequest("Name too long (max 100 characters)".to_string()));
     }
 
-    let item = state.store.create_item(
+    let item = state.item_service.create_item(
         payload.name,
         payload.description,
         payload.tags.unwrap_or_default(),
         payload.metadata
-    )?;
+    ).await?;
 
     Ok((StatusCode::CREATED, Json(ApiResponse::success(item))))
 }
@@ -150,13 +166,13 @@ async fn handle_put_item(
         return Err(AppError::BadRequest("Name cannot be empty".to_string()));
     }
 
-    let item = state.store.update_item(
+    let item = state.item_service.update_item(
         id,
         payload.name,
         payload.description,
         payload.tags.unwrap_or_default(),
         payload.metadata
-    )?;
+    ).await?;
 
     Ok(Json(ApiResponse::success(item)))
 }
@@ -171,7 +187,7 @@ async fn handle_delete_item(
         return Err(AppError::BadRequest("Invalid item ID".to_string()));
     }
 
-    state.store.delete_item(id)?;
+    state.item_service.delete_item(id).await?;
     
     Ok((
         StatusCode::NO_CONTENT,
@@ -197,7 +213,7 @@ async fn handle_patch_item(
         return Err(AppError::BadRequest("No updates provided".to_string()));
     }
 
-    let item = state.store.patch_item(id, patch)?;
+    let item = state.item_service.patch_item(id, patch).await?;
     Ok(Json(ApiResponse::success(item)))
 }
 
@@ -219,12 +235,12 @@ async fn handle_form_submit(
         "submitted_at": chrono::Utc::now().to_rfc3339()
     });
     
-    let item = state.store.create_item(
+    let item = state.item_service.create_item(
         item_name,
         Some(format!("Submitted by {} ({})", form.name, form.email)),
         vec!["form-submission".to_string()],
         Some(metadata)
-    )?;
+    ).await?;
 
     Ok(Json(ApiResponse::success(serde_json::json!({
         "message": "Form submitted successfully",
@@ -235,13 +251,16 @@ async fn handle_form_submit(
 async fn handle_head(State(state): State<AppState>) -> impl IntoResponse {
     info!("HEAD /api/head");
     
-    let stats = state.store.get_stats().unwrap_or_default();
+    let stats = state.item_service.get_stats().await.unwrap_or_default();
     let item_count = stats.get("total_items").and_then(|v| v.as_u64()).unwrap_or(0);
     
     let mut headers = HeaderMap::new();
     headers.insert("X-Custom-Header", "HEAD-Response".parse().unwrap());
     headers.insert("X-Total-Items", item_count.to_string().parse().unwrap());
     headers.insert("X-Api-Version", state.version.parse().unwrap());
+    headers.insert("X-Data-Source", 
+        if state.item_service.is_using_database() { "database" } else { "memory" }
+            .parse().unwrap());
     
     (StatusCode::OK, headers)
 }
@@ -800,7 +819,8 @@ async fn handle_dashboard() -> impl IntoResponse {
 }
 
 async fn handle_metrics(State(state): State<AppState>) -> Result<impl IntoResponse> {
-    let item_count = state.store.get_items(None, None)?.len();
+    let items = state.item_service.get_items(None, None).await?;
+    let item_count = items.len();
     let snapshot = state.metrics.get_snapshot(item_count);
     
     Ok(Json(ApiResponse::success(snapshot)))
@@ -811,7 +831,7 @@ async fn handle_export_items(
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<impl IntoResponse> {
     let format = params.get("format").map(|s| s.as_str()).unwrap_or("json");
-    let items = state.store.get_items(None, None)?;
+    let items = state.item_service.get_items(None, None).await?;
     
     match format {
         "csv" => {
