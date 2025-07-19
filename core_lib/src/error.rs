@@ -24,8 +24,14 @@ pub enum AppError {
     #[error("Unauthorized")]
     Unauthorized,
 
+    #[error("Authentication error: {0}")]
+    Authentication(String),
+
+    #[error("Authorization error: {0}")]
+    Authorization(String),
+
     #[error("Database error: {0}")]
-    Database(#[from] sqlx::Error),
+    Database(String),
 
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
@@ -43,18 +49,14 @@ impl IntoResponse for AppError {
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()),
+            AppError::Authentication(msg) => (StatusCode::UNAUTHORIZED, msg),
+            AppError::Authorization(msg) => (StatusCode::FORBIDDEN, msg),
             AppError::InternalServerError => {
                 (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
             }
-            AppError::Database(err) => {
-                tracing::error!("Database error: {:?}", err);
-                match err {
-                    sqlx::Error::RowNotFound => (StatusCode::NOT_FOUND, "Resource not found".to_string()),
-                    sqlx::Error::Database(db_err) if db_err.is_unique_violation() => {
-                        (StatusCode::CONFLICT, "Resource already exists".to_string())
-                    }
-                    _ => (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string()),
-                }
+            AppError::Database(msg) => {
+                tracing::error!("Database error: {}", msg);
+                (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string())
             }
             AppError::IoError(err) => {
                 tracing::error!("IO error: {:?}", err);
@@ -76,5 +78,18 @@ impl IntoResponse for AppError {
         }));
 
         (status, body).into_response()
+    }
+}
+
+// Helper to convert sqlx::Error to AppError::Database
+impl From<sqlx::Error> for AppError {
+    fn from(err: sqlx::Error) -> Self {
+        match err {
+            sqlx::Error::RowNotFound => AppError::NotFound("Resource not found".to_string()),
+            sqlx::Error::Database(db_err) if db_err.is_unique_violation() => {
+                AppError::BadRequest("Resource already exists".to_string())
+            }
+            _ => AppError::Database(err.to_string()),
+        }
     }
 }
