@@ -1,7 +1,7 @@
 //! Main entry point for the HTTP server binary
 
 use anyhow::Result;
-use core_lib::{create_app, run_server, AppState};
+use core_lib::{create_app, run_server, AppState, AppConfig};
 use std::net::SocketAddr;
 use tracing::info;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -10,12 +10,18 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 async fn main() -> Result<()> {
     init_tracing();
 
-    let port = std::env::var("PORT")
-        .unwrap_or_else(|_| "3000".to_string())
-        .parse::<u16>()
-        .expect("Invalid PORT");
-    
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    let config = AppConfig::load()
+        .map_err(|e| anyhow::anyhow!("Failed to load configuration: {}", e))?;
+
+    info!("Configuration loaded successfully");
+    info!("Server will bind to: {}", config.bind_address());
+    info!("Database URL: {}", config.database.url);
+
+    config.create_directories()
+        .map_err(|e| anyhow::anyhow!("Failed to create directories: {}", e))?;
+
+    let addr: SocketAddr = config.bind_address().parse()
+        .map_err(|e| anyhow::anyhow!("Invalid bind address: {}", e))?;
 
     info!("Initializing Rust HTTP Server");
     info!("Environment: {}", std::env::var("RUST_ENV").unwrap_or_else(|_| "development".to_string()));
