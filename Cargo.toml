@@ -4,7 +4,7 @@ resolver = "2"
 
 [workspace.dependencies]
 tokio = { version = "1.35", features = ["full"] }
-axum = { version = "0.7", features = ["macros", "json", "form"] }
+axum = { version = "0.7", features = ["macros", "json", "form", "ws"] }
 tower = { version = "0.4", features = ["full"] }
 tower-http = { version = "0.5", features = ["cors", "trace"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -18,3 +18,23 @@ chrono = { version = "0.4", features = ["serde"] }
 http = "1.0"
 uuid = { version = "1.6", features = ["v4", "serde"] }
 parking_lot = "0.12"
+
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid", "json"] }
+
+jsonwebtoken = "9.2"
+argon2 = "0.5"
+
+config = "0.14"
+toml = "0.8"
+
+tokio-tungstenite = "0.21"
+futures-util = "0.3"
+
+mime = "0.3"
+mime_guess = "2.0"
+tempfile = "3.8"
+
+lru = "0.12"
+
+async-trait = "0.1"
+regex = "1.10"
