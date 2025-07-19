@@ -1,7 +1,7 @@
 //! Main entry point for the HTTP server binary
 
 use anyhow::Result;
-use core_lib::{create_app, run_server, AppState, AppConfig, DatabaseManager, ItemRepository, get_database_pool, run_migrations};
+use core_lib::{create_app, run_server, AppState, AppConfig, DatabaseManager, ItemRepository, get_database_pool, run_migrations, WebSocketManager, JwtService};
 use std::net::SocketAddr;
 use tracing::info;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -32,26 +32,79 @@ async fn main() -> Result<()> {
         match initialize_database(&config.database.url).await {
             Ok((db_manager, item_repository)) => {
                 info!("Database initialized successfully");
-                let state = AppState::with_database(db_manager, item_repository);
+                let mut state = AppState::with_database(db_manager, item_repository);
                 
                 if let Err(e) = state.migrate_to_database_if_needed().await {
                     tracing::warn!("Failed to migrate data to database: {}", e);
                 }
                 
+                let jwt_service = match JwtService::new() {
+                    Ok(jwt) => {
+                        info!("JWT service initialized for WebSocket authentication");
+                        Some(jwt)
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to initialize JWT service for WebSocket auth: {}", e);
+                        None
+                    }
+                };
+                
+                let websocket_manager = WebSocketManager::new(jwt_service);
+                state = state.with_websocket(websocket_manager);
+                info!("WebSocket manager initialized");
+                
                 state
             }
             Err(e) => {
                 tracing::warn!("Failed to initialize database, falling back to in-memory store: {}", e);
-                AppState::default()
+                let mut state = AppState::default();
+                
+                let websocket_manager = WebSocketManager::new(None);
+                state = state.with_websocket(websocket_manager);
+                info!("WebSocket manager initialized (no auth)");
+                
+                state
             }
         }
     } else {
         info!("Using in-memory data store");
-        AppState::default()
+        let mut state = AppState::default();
+        
+        let websocket_manager = WebSocketManager::new(None);
+        state = state.with_websocket(websocket_manager);
+        info!("WebSocket manager initialized (no auth)");
+        
+        state
     };
 
     info!("App: {} v{}", state.app_name, state.version);
     info!("Data storage: {}", if state.item_service.is_using_database() { "SQLite Database" } else { "In-Memory Store" });
+
+    if let Some(ws_manager) = &state.websocket_manager {
+        let ws_manager_clone = ws_manager.clone();
+        let metrics_clone = state.metrics.clone();
+        let item_service_clone = state.item_service.clone();
+        
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
+            loop {
+                interval.tick().await;
+                
+                if ws_manager_clone.connection_count().await > 0 {
+                    let item_count = match item_service_clone.get_stats().await {
+                        Ok(stats) => stats.get("total_items").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
+                        Err(_) => 0,
+                    };
+                    
+                    let metrics_snapshot = metrics_clone.get_snapshot(item_count);
+                    let event = core_lib::websocket::WebSocketEvent::MetricsUpdate(metrics_snapshot);
+                    ws_manager_clone.broadcast(event).await;
+                }
+            }
+        });
+        
+        info!("Started metrics broadcasting task (every 5 seconds)");
+    }
 
     let app = create_app(state);
 
