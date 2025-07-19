@@ -17,4 +17,18 @@ anyhow = { workspace = true }
 chrono = { workspace = true }
 http = { workspace = true }
 uuid = { workspace = true }
-parking_lot = "0.12"
+parking_lot = { workspace = true }
+
+sqlx = { workspace = true }
+jsonwebtoken = { workspace = true }
+argon2 = { workspace = true }
+config = { workspace = true }
+toml = { workspace = true }
+tokio-tungstenite = { workspace = true }
+futures-util = { workspace = true }
+mime = { workspace = true }
+mime_guess = { workspace = true }
+tempfile = { workspace = true }
+lru = { workspace = true }
+async-trait = { workspace = true }
+regex = { workspace = true }
