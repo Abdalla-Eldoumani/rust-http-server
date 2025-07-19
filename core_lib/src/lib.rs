@@ -1,14 +1,18 @@
 //! Core library containing business logic and route handlers for the HTTP server.
 
 pub mod config;
+pub mod database;
 pub mod error;
 pub mod handlers;
 pub mod middleware;
 pub mod models;
+pub mod services;
 pub mod store;
 pub mod metrics;
 
 pub use config::AppConfig;
+pub use database::{DatabaseManager, get_database_pool, run_migrations, ItemRepository, MigrationService};
+pub use services::ItemService;
 pub use error::{AppError, Result};
 pub use handlers::routes::create_routes;
 pub use middleware::cors::{cors_layer, cors_layer_permissive};
@@ -34,19 +38,57 @@ pub struct AppState {
     pub app_name: String,
     pub version: String,
     pub store: DataStore,
+    pub db_manager: Option<DatabaseManager>,
+    pub item_service: ItemService,
     pub metrics: MetricsCollector,
     pub rate_limiter: RateLimiter,
 }
 
 impl Default for AppState {
     fn default() -> Self {
+        let store = DataStore::new();
+        let item_service = ItemService::with_memory_store(store.clone());
+        
         Self {
             app_name: "Rust HTTP Server".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
-            store: DataStore::new(),
+            store,
+            db_manager: None,
+            item_service,
             metrics: MetricsCollector::new(),
             rate_limiter: RateLimiter::new(100, 60),
         }
+    }
+}
+
+impl AppState {
+    pub fn with_database(db_manager: DatabaseManager, item_repository: ItemRepository) -> Self {
+        let store = DataStore::new();
+        let item_service = ItemService::with_database(item_repository, store.clone());
+        
+        Self {
+            app_name: "Rust HTTP Server".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            store,
+            db_manager: Some(db_manager),
+            item_service,
+            metrics: MetricsCollector::new(),
+            rate_limiter: RateLimiter::new(100, 60),
+        }
+    }
+
+    pub async fn migrate_to_database_if_needed(&self) -> Result<()> {
+        if let Some(repo) = self.item_service.repository() {
+            let migration_service = MigrationService::new(repo.clone());
+            
+            if migration_service.is_migration_needed(&self.store).await? {
+                info!("Starting automatic migration from in-memory store to database");
+                let result = migration_service.migrate_from_memory_store(&self.store).await?;
+                info!("Migration completed: {} items migrated successfully, {} failed", 
+                      result.successful_migrations, result.failed_count);
+            }
+        }
+        Ok(())
     }
 }
 
