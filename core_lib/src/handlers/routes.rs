@@ -35,6 +35,7 @@ pub fn create_routes() -> Router<AppState> {
         .route("/api/form", axum::routing::post(handle_form_submit))
         .route("/api/head", axum::routing::head(handle_head))
         .route("/api/options", axum::routing::options(handle_options))
+        .route("/ws", axum::routing::get(crate::websocket::websocket_handler))
         .nest("/auth", create_auth_routes_with_middleware())
 }
 
@@ -46,6 +47,10 @@ async fn handle_root(State(state): State<AppState>) -> impl IntoResponse {
         "item": "/api/items/{id}",
         "form": "/api/form"
     });
+
+    if state.websocket_manager.is_some() {
+        endpoints["websocket"] = serde_json::Value::String("/ws".to_string());
+    }
 
     if state.auth_service.is_some() {
         endpoints["auth"] = serde_json::json!({
@@ -63,6 +68,7 @@ async fn handle_root(State(state): State<AppState>) -> impl IntoResponse {
         "version": state.version,
         "message": "Welcome to the Rust HTTP Server",
         "authentication_enabled": state.auth_service.is_some(),
+        "websocket_enabled": state.websocket_manager.is_some(),
         "endpoints": endpoints
     })))
 }
@@ -163,6 +169,11 @@ async fn handle_post_item(
         payload.metadata
     ).await?;
 
+    if let Some(ws_manager) = &state.websocket_manager {
+        let event = crate::websocket::WebSocketEvent::ItemCreated(item.clone());
+        ws_manager.broadcast(event).await;
+    }
+
     Ok((StatusCode::CREATED, Json(ApiResponse::success(item))))
 }
 
@@ -189,6 +200,11 @@ async fn handle_put_item(
         payload.metadata
     ).await?;
 
+    if let Some(ws_manager) = &state.websocket_manager {
+        let event = crate::websocket::WebSocketEvent::ItemUpdated(item.clone());
+        ws_manager.broadcast(event).await;
+    }
+
     Ok(Json(ApiResponse::success(item)))
 }
 
@@ -203,6 +219,11 @@ async fn handle_delete_item(
     }
 
     state.item_service.delete_item(id).await?;
+    
+    if let Some(ws_manager) = &state.websocket_manager {
+        let event = crate::websocket::WebSocketEvent::ItemDeleted(id);
+        ws_manager.broadcast(event).await;
+    }
     
     Ok((
         StatusCode::NO_CONTENT,
@@ -229,6 +250,12 @@ async fn handle_patch_item(
     }
 
     let item = state.item_service.patch_item(id, patch).await?;
+    
+    if let Some(ws_manager) = &state.websocket_manager {
+        let event = crate::websocket::WebSocketEvent::ItemUpdated(item.clone());
+        ws_manager.broadcast(event).await;
+    }
+    
     Ok(Json(ApiResponse::success(item)))
 }
 
@@ -256,6 +283,11 @@ async fn handle_form_submit(
         vec!["form-submission".to_string()],
         Some(metadata)
     ).await?;
+
+    if let Some(ws_manager) = &state.websocket_manager {
+        let event = crate::websocket::WebSocketEvent::ItemCreated(item.clone());
+        ws_manager.broadcast(event).await;
+    }
 
     Ok(Json(ApiResponse::success(serde_json::json!({
         "message": "Form submitted successfully",
