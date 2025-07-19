@@ -1,5 +1,6 @@
 //! Core library containing business logic and route handlers for the HTTP server.
 
+pub mod config;
 pub mod error;
 pub mod handlers;
 pub mod middleware;
@@ -7,6 +8,7 @@ pub mod models;
 pub mod store;
 pub mod metrics;
 
+pub use config::AppConfig;
 pub use error::{AppError, Result};
 pub use handlers::routes::create_routes;
 pub use middleware::cors::{cors_layer, cors_layer_permissive};
