@@ -64,7 +64,7 @@ impl ItemRepository {
     }
 
     pub async fn begin_transaction(&self) -> Result<sqlx::Transaction<'_, sqlx::Sqlite>> {
-        self.pool.begin().await.map_err(AppError::Database)
+        self.pool.begin().await.map_err(AppError::from)
     }
 
     pub async fn search(&self, query: &str, params: ListParams) -> Result<Vec<Item>> {
@@ -84,7 +84,7 @@ impl ItemRepository {
         .bind(offset)
         .fetch_all(&self.pool)
         .await
-        .map_err(AppError::Database)?;
+        .map_err(AppError::from)?;
 
         let mut items = Vec::new();
         for row in rows {
@@ -126,7 +126,7 @@ impl ItemRepository {
             .bind(offset)
             .fetch_all(&self.pool)
             .await
-            .map_err(AppError::Database)?;
+            .map_err(AppError::from)?;
 
         let mut items = Vec::new();
         for row in rows {
@@ -192,7 +192,7 @@ impl Repository<Item> for ItemRepository {
         .bind(input.created_by)
         .fetch_one(&self.pool)
         .await
-        .map_err(AppError::Database)?;
+        .map_err(AppError::from)?;
 
         let db_item = DbItem {
             id: row.try_get("id").unwrap_or(0),
@@ -217,7 +217,7 @@ impl Repository<Item> for ItemRepository {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(AppError::Database)?;
+        .map_err(AppError::from)?;
 
         match row {
             Some(row) => {
@@ -259,7 +259,7 @@ impl Repository<Item> for ItemRepository {
         .bind(id)
         .fetch_one(&self.pool)
         .await
-        .map_err(AppError::Database)?;
+        .map_err(AppError::from)?;
 
         let db_item = DbItem {
             id: row.try_get("id").unwrap_or(0),
@@ -280,7 +280,7 @@ impl Repository<Item> for ItemRepository {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(AppError::Database)?;
+            .map_err(AppError::from)?;
 
         if result.rows_affected() == 0 {
             return Err(AppError::NotFound(format!("Item with id {} not found", id)));
@@ -307,7 +307,7 @@ impl Repository<Item> for ItemRepository {
             .bind(offset)
             .fetch_all(&self.pool)
             .await
-            .map_err(AppError::Database)?;
+            .map_err(AppError::from)?;
 
         let mut items = Vec::new();
         for row in rows {
@@ -331,7 +331,7 @@ impl Repository<Item> for ItemRepository {
         let row = sqlx::query("SELECT COUNT(*) as count FROM items")
             .fetch_one(&self.pool)
             .await
-            .map_err(AppError::Database)?;
+            .map_err(AppError::from)?;
 
         Ok(row.try_get("count").unwrap_or(0))
     }
@@ -356,7 +356,7 @@ impl UserRepository {
         .bind(username)
         .fetch_optional(&self.pool)
         .await
-        .map_err(AppError::Database)?;
+        .map_err(AppError::from)?;
 
         match row {
             Some(row) => {
@@ -385,7 +385,7 @@ impl UserRepository {
         .bind(email)
         .fetch_optional(&self.pool)
         .await
-        .map_err(AppError::Database)?;
+        .map_err(AppError::from)?;
 
         match row {
             Some(row) => {
@@ -411,7 +411,7 @@ impl UserRepository {
             .bind(user_id)
             .execute(&self.pool)
             .await
-            .map_err(AppError::Database)?;
+            .map_err(AppError::from)?;
 
         Ok(())
     }
@@ -454,7 +454,7 @@ impl Repository<DbUser> for UserRepository {
         .bind(true)
         .fetch_one(&self.pool)
         .await
-        .map_err(AppError::Database)?;
+        .map_err(AppError::from)?;
 
         let user = DbUser {
             id: row.try_get("id").unwrap_or(0),
@@ -479,7 +479,7 @@ impl Repository<DbUser> for UserRepository {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(AppError::Database)?;
+        .map_err(AppError::from)?;
 
         match row {
             Some(row) => {
@@ -547,7 +547,7 @@ impl Repository<DbUser> for UserRepository {
         let row = query_builder
             .fetch_one(&self.pool)
             .await
-            .map_err(AppError::Database)?;
+            .map_err(AppError::from)?;
 
         let user = DbUser {
             id: row.try_get("id").unwrap_or(0),
@@ -568,7 +568,7 @@ impl Repository<DbUser> for UserRepository {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(AppError::Database)?;
+            .map_err(AppError::from)?;
 
         if result.rows_affected() == 0 {
             return Err(AppError::NotFound(format!("User with id {} not found", id)));
@@ -595,7 +595,7 @@ impl Repository<DbUser> for UserRepository {
             .bind(offset)
             .fetch_all(&self.pool)
             .await
-            .map_err(AppError::Database)?;
+            .map_err(AppError::from)?;
 
         let mut users = Vec::new();
         for row in rows {
@@ -619,7 +619,7 @@ impl Repository<DbUser> for UserRepository {
         let row = sqlx::query("SELECT COUNT(*) as count FROM users")
             .fetch_one(&self.pool)
             .await
-            .map_err(AppError::Database)?;
+            .map_err(AppError::from)?;
 
         Ok(row.try_get("count").unwrap_or(0))
     }
@@ -702,6 +702,9 @@ mod tests {
         let created_user = repo.create(create_input).await.unwrap();
         assert_eq!(created_user.username, "testuser");
         assert_eq!(created_user.email, "test@example.com");
+
+        // Add a small delay to ensure WAL mode consistency
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
         let user_by_username = repo.get_by_username("testuser").await.unwrap();
         assert!(user_by_username.is_some());
