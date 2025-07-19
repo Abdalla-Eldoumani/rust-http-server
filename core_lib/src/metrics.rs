@@ -20,7 +20,7 @@ pub struct MetricsCollector {
     pub start_time: DateTime<Utc>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResponseTime {
     pub timestamp: DateTime<Utc>,
     pub duration_ms: u128,
@@ -28,7 +28,7 @@ pub struct ResponseTime {
     pub status: u16,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetricsSnapshot {
     pub total_requests: u64,
     pub successful_requests: u64,
@@ -42,7 +42,7 @@ pub struct MetricsSnapshot {
     pub last_hour_response_times: Vec<ResponseTime>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EndpointMetric {
     pub endpoint: String,
     pub count: u64,
