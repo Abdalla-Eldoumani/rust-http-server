@@ -1,5 +1,6 @@
 //! Core library containing business logic and route handlers for the HTTP server.
 
+pub mod auth;
 pub mod config;
 pub mod database;
 pub mod error;
@@ -10,6 +11,7 @@ pub mod services;
 pub mod store;
 pub mod metrics;
 
+pub use auth::{AuthService, JwtService, UserRepository, UserRepositoryTrait};
 pub use config::AppConfig;
 pub use database::{DatabaseManager, get_database_pool, run_migrations, ItemRepository, MigrationService};
 pub use services::ItemService;
