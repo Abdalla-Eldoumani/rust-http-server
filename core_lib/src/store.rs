@@ -52,6 +52,13 @@ impl DataStore {
         }
     }
 
+    pub fn empty() -> Self {
+        Self {
+            items: Arc::new(RwLock::new(HashMap::new())),
+            next_id: Arc::new(RwLock::new(1)),
+        }
+    }
+
     pub fn get_items(&self, limit: Option<usize>, offset: Option<usize>) -> Result<Vec<Item>> {
         let items = self.items.read()
             .map_err(|_| AppError::InternalServerError)?;
