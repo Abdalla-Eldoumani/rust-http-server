@@ -126,6 +126,21 @@ impl JwtService {
     }
 }
 
+impl Clone for JwtService {
+    fn clone(&self) -> Self {
+        Self::new().expect("Failed to clone JWT service")
+    }
+}
+
+impl std::fmt::Debug for JwtService {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JwtService")
+            .field("access_token_expiry", &self.access_token_expiry)
+            .field("refresh_token_expiry", &self.refresh_token_expiry)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Default for JwtService {
     fn default() -> Self {
         Self::new().expect("Failed to create JWT service")
