@@ -2,6 +2,7 @@
 
 use crate::{
     error::{AppError, Result},
+    handlers::files,
     models::request::{ApiResponse, FormPayload},
     AppState,
 };
@@ -38,6 +39,7 @@ pub fn create_routes() -> Router<AppState> {
         .route("/api/options", axum::routing::options(handle_options))
         .route("/ws", axum::routing::get(crate::websocket::websocket_handler))
         .nest("/auth", create_auth_routes_with_middleware())
+        .nest("/api/files", create_file_routes())
 }
 
 async fn handle_root(State(state): State<AppState>) -> impl IntoResponse {
@@ -49,6 +51,19 @@ async fn handle_root(State(state): State<AppState>) -> impl IntoResponse {
         "item": "/api/items/{id}",
         "form": "/api/form"
     });
+
+    if state.file_manager.is_some() {
+        endpoints["files"] = serde_json::json!({
+            "upload": "/api/files/upload",
+            "serve": "/api/files/{id}",
+            "info": "/api/files/{id}/info",
+            "download": "/api/files/{id}/download",
+            "delete": "/api/files/{id}",
+            "list": "/api/files",
+            "associate": "/api/files/{id}/associate",
+            "item_files": "/api/files/item/{id}"
+        });
+    }
 
     if state.websocket_manager.is_some() {
         endpoints["websocket"] = serde_json::Value::String("/ws".to_string());
@@ -1080,4 +1095,18 @@ fn create_auth_routes_with_middleware() -> Router<AppState> {
         .route("/logout", post(logout_user))
         .route("/me", get(get_current_user))
         .route("/users/:id", get(get_user_by_id))
+}
+
+fn create_file_routes() -> Router<AppState> {
+    use axum::routing::{delete, get, post, put};
+
+    Router::new()
+        .route("/upload", post(files::upload_file))
+        .route("/:id", get(files::serve_file))
+        .route("/:id/info", get(files::get_file_info))
+        .route("/:id/download", get(files::download_file))
+        .route("/:id", delete(files::delete_file))
+        .route("/:id/associate", put(files::associate_file_with_item))
+        .route("/", get(files::list_files))
+        .route("/item/:id", get(files::get_item_files))
 }
