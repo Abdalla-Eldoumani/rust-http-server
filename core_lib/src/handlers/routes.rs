@@ -24,6 +24,7 @@ pub fn create_routes() -> Router<AppState> {
         .route("/api/stats", get(handle_stats))
         .route("/api/metrics", get(handle_metrics))
         .route("/api/items", get(handle_get_items).post(handle_post_item))
+        .route("/api/items/search", get(handle_search_items))
         .route("/api/items/export", get(handle_export_items))
         .route(
             "/api/items/:id",
@@ -44,6 +45,7 @@ async fn handle_root(State(state): State<AppState>) -> impl IntoResponse {
         "health": "/health",
         "stats": "/api/stats",
         "items": "/api/items",
+        "search": "/api/items/search",
         "item": "/api/items/{id}",
         "form": "/api/form"
     });
@@ -107,6 +109,142 @@ async fn handle_stats(State(state): State<AppState>) -> Result<impl IntoResponse
 struct ItemsQuery {
     limit: Option<usize>,
     offset: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SearchQuery {
+    q: Option<String>,
+    tags: Option<String>,
+    created_after: Option<String>,
+    created_before: Option<String>,
+    updated_after: Option<String>,
+    updated_before: Option<String>,
+    sort_by: Option<String>,
+    sort_order: Option<String>,
+    fuzzy: Option<bool>,
+    created_by: Option<i64>,
+    min_relevance: Option<f64>,
+    limit: Option<u64>,
+    offset: Option<u64>,
+}
+
+async fn handle_search_items(
+    State(state): State<AppState>,
+    Query(params): Query<SearchQuery>
+) -> Result<impl IntoResponse> {
+    info!("GET /api/items/search - query: {:?}", params);
+    
+    let search_engine = state.search_engine.as_ref().ok_or_else(|| AppError::BadRequest("Search functionality not available".to_string()))?;
+    
+    let mut search_query = crate::search::SearchQuery::new();
+    
+    if let Some(ref text) = params.q {
+        if !text.trim().is_empty() {
+            search_query = search_query.with_text(text.clone());
+        }
+    }
+    
+    if let Some(ref tags_str) = params.tags {
+        let tags: Vec<String> = tags_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if !tags.is_empty() {
+            search_query = search_query.with_tags(tags);
+        }
+    }
+    
+    if let Some(created_after) = params.created_after {
+        let start_date = chrono::DateTime::parse_from_rfc3339(&created_after)
+            .map_err(|_| AppError::BadRequest("Invalid created_after date format".to_string()))?
+            .with_timezone(&chrono::Utc);
+        
+        let end_date = if let Some(created_before) = params.created_before {
+            Some(chrono::DateTime::parse_from_rfc3339(&created_before)
+                .map_err(|_| AppError::BadRequest("Invalid created_before date format".to_string()))?
+                .with_timezone(&chrono::Utc))
+        } else {
+            None
+        };
+        
+        search_query = search_query.with_created_date_range(Some(start_date), end_date);
+    } else if let Some(created_before) = params.created_before {
+        let end_date = chrono::DateTime::parse_from_rfc3339(&created_before)
+            .map_err(|_| AppError::BadRequest("Invalid created_before date format".to_string()))?
+            .with_timezone(&chrono::Utc);
+        search_query = search_query.with_created_date_range(None, Some(end_date));
+    }
+    
+    if let Some(updated_after) = params.updated_after {
+        let start_date = chrono::DateTime::parse_from_rfc3339(&updated_after)
+            .map_err(|_| AppError::BadRequest("Invalid updated_after date format".to_string()))?
+            .with_timezone(&chrono::Utc);
+        
+        let end_date = if let Some(updated_before) = params.updated_before {
+            Some(chrono::DateTime::parse_from_rfc3339(&updated_before)
+                .map_err(|_| AppError::BadRequest("Invalid updated_before date format".to_string()))?
+                .with_timezone(&chrono::Utc))
+        } else {
+            None
+        };
+        
+        search_query = search_query.with_updated_date_range(Some(start_date), end_date);
+    } else if let Some(updated_before) = params.updated_before {
+        let end_date = chrono::DateTime::parse_from_rfc3339(&updated_before)
+            .map_err(|_| AppError::BadRequest("Invalid updated_before date format".to_string()))?
+            .with_timezone(&chrono::Utc);
+        search_query = search_query.with_updated_date_range(None, Some(end_date));
+    }
+    
+    let sort_field = match params.sort_by.as_deref() {
+        Some("name") => crate::search::SortField::Name,
+        Some("created_at") => crate::search::SortField::CreatedAt,
+        Some("updated_at") => crate::search::SortField::UpdatedAt,
+        Some("relevance") => crate::search::SortField::Relevance,
+        _ => crate::search::SortField::CreatedAt,
+    };
+    
+    let sort_order = match params.sort_order.as_deref() {
+        Some("asc") => crate::search::SortOrder::Asc,
+        Some("desc") => crate::search::SortOrder::Desc,
+        _ => crate::search::SortOrder::Desc,
+    };
+    
+    search_query = search_query.with_sort(sort_field, sort_order);
+    
+    if let Some(fuzzy) = params.fuzzy {
+        search_query = search_query.with_fuzzy(fuzzy);
+    }
+    
+    if let Some(created_by) = params.created_by {
+        search_query = search_query.with_created_by(created_by);
+    }
+    
+    if let Some(min_relevance) = params.min_relevance {
+        search_query = search_query.with_min_relevance(min_relevance);
+    }
+    
+    let limit = params.limit.unwrap_or(50).min(100);
+    let offset = params.offset.unwrap_or(0);
+    search_query = search_query.with_pagination(offset, limit);
+    
+    let search_result = search_engine.search(&search_query).await?;
+    
+    Ok(Json(ApiResponse::success(serde_json::json!({
+        "items": search_result.items,
+        "total_count": search_result.total_count,
+        "offset": search_result.offset,
+        "limit": search_result.limit,
+        "has_more": search_result.has_more,
+        "query": {
+            "text": params.q,
+            "tags": params.tags,
+            "sort_by": params.sort_by,
+            "sort_order": params.sort_order,
+            "fuzzy": params.fuzzy.unwrap_or(false)
+        }
+    }))))
 }
 
 async fn handle_get_items(
