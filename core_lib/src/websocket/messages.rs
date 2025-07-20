@@ -22,6 +22,7 @@ pub enum WebSocketEvent {
     ItemUpdated(Item),
     ItemDeleted(u64),
     MetricsUpdate(MetricsSnapshot),
+    Custom(serde_json::Value),
 }
 
 impl From<WebSocketEvent> for WebSocketMessage {
@@ -31,6 +32,15 @@ impl From<WebSocketEvent> for WebSocketMessage {
             WebSocketEvent::ItemUpdated(item) => WebSocketMessage::ItemUpdated(item),
             WebSocketEvent::ItemDeleted(id) => WebSocketMessage::ItemDeleted { id },
             WebSocketEvent::MetricsUpdate(metrics) => WebSocketMessage::MetricsUpdate(metrics),
+            WebSocketEvent::Custom(value) => {
+                if let Ok(msg) = serde_json::from_value::<WebSocketMessage>(value.clone()) {
+                    msg
+                } else {
+                    WebSocketMessage::Error { 
+                        message: format!("Unknown custom event: {}", value) 
+                    }
+                }
+            }
         }
     }
 }
