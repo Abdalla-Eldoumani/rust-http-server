@@ -1,7 +1,7 @@
 //! Main entry point for the HTTP server binary
 
 use anyhow::Result;
-use core_lib::{create_app, run_server, AppState, AppConfig, DatabaseManager, ItemRepository, get_database_pool, run_migrations, WebSocketManager, JwtService};
+use core_lib::{create_app, run_server, AppState, AppConfig, DatabaseManager, ItemRepository, get_database_pool, run_migrations, WebSocketManager, JwtService, FileManager, FileRepository, FileManagerConfig};
 use std::net::SocketAddr;
 use tracing::info;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -30,13 +30,16 @@ async fn main() -> Result<()> {
         info!("Initializing database connection: {}", config.database.url);
         
         match initialize_database(&config.database.url).await {
-            Ok((db_manager, item_repository)) => {
+            Ok((db_manager, item_repository, file_manager)) => {
                 info!("Database initialized successfully");
                 let mut state = AppState::with_database(db_manager, item_repository);
                 
                 if let Err(e) = state.migrate_to_database_if_needed().await {
                     tracing::warn!("Failed to migrate data to database: {}", e);
                 }
+                
+                state = state.with_file_manager(file_manager);
+                info!("File manager initialized");
                 
                 let jwt_service = match JwtService::new() {
                     Ok(jwt) => {
@@ -114,7 +117,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn initialize_database(database_url: &str) -> Result<(DatabaseManager, ItemRepository)> {
+async fn initialize_database(database_url: &str) -> Result<(DatabaseManager, ItemRepository, FileManager)> {
     let pool = get_database_pool(database_url).await
         .map_err(|e| anyhow::anyhow!("Failed to create database pool: {}", e))?;
 
@@ -122,9 +125,16 @@ async fn initialize_database(database_url: &str) -> Result<(DatabaseManager, Ite
         .map_err(|e| anyhow::anyhow!("Failed to run database migrations: {}", e))?;
 
     let db_manager = DatabaseManager::new(pool.clone());
-    let item_repository = ItemRepository::new(pool);
+    let item_repository = ItemRepository::new(pool.clone());
+    
+    let file_repository = FileRepository::new(pool);
+    let file_manager_config = FileManagerConfig::default();
+    let file_manager = FileManager::new(file_manager_config, file_repository);
+    
+    file_manager.initialize().await
+        .map_err(|e| anyhow::anyhow!("Failed to initialize file manager: {}", e))?;
 
-    Ok((db_manager, item_repository))
+    Ok((db_manager, item_repository, file_manager))
 }
 
 fn init_tracing() {
