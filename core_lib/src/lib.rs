@@ -7,6 +7,7 @@ pub mod error;
 pub mod handlers;
 pub mod middleware;
 pub mod models;
+pub mod search;
 pub mod services;
 pub mod store;
 pub mod metrics;
@@ -15,6 +16,7 @@ pub mod websocket;
 pub use auth::{AuthService, JwtService, UserRepository, UserRepositoryTrait};
 pub use config::AppConfig;
 pub use database::{DatabaseManager, get_database_pool, run_migrations, ItemRepository, MigrationService};
+pub use search::{SearchEngine, SearchQuery, SearchResult, SearchFilters, SearchCache};
 pub use services::ItemService;
 pub use error::{AppError, Result};
 pub use handlers::routes::create_routes;
@@ -45,6 +47,7 @@ pub struct AppState {
     pub store: DataStore,
     pub db_manager: Option<DatabaseManager>,
     pub item_service: ItemService,
+    pub search_engine: Option<SearchEngine>,
     pub metrics: MetricsCollector,
     pub rate_limiter: RateLimiter,
     pub auth_service: Option<AuthService>,
@@ -62,6 +65,7 @@ impl Default for AppState {
             store,
             db_manager: None,
             item_service,
+            search_engine: None,
             metrics: MetricsCollector::new(),
             rate_limiter: RateLimiter::new(100, 60),
             auth_service: None,
@@ -74,6 +78,8 @@ impl AppState {
     pub fn with_database(db_manager: DatabaseManager, item_repository: ItemRepository) -> Self {
         let store = DataStore::new();
         let item_service = ItemService::with_database(item_repository, store.clone());
+        let search_cache = SearchCache::default();
+        let search_engine = SearchEngine::new(db_manager.pool().clone()).with_cache(search_cache);
         
         Self {
             app_name: "Rust HTTP Server".to_string(),
@@ -81,6 +87,7 @@ impl AppState {
             store,
             db_manager: Some(db_manager),
             item_service,
+            search_engine: Some(search_engine),
             metrics: MetricsCollector::new(),
             rate_limiter: RateLimiter::new(100, 60),
             auth_service: None,
