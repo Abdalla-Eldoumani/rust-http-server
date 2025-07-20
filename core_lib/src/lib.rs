@@ -4,6 +4,7 @@ pub mod auth;
 pub mod config;
 pub mod database;
 pub mod error;
+pub mod files;
 pub mod handlers;
 pub mod middleware;
 pub mod models;
@@ -16,6 +17,7 @@ pub mod websocket;
 pub use auth::{AuthService, JwtService, UserRepository, UserRepositoryTrait};
 pub use config::AppConfig;
 pub use database::{DatabaseManager, get_database_pool, run_migrations, ItemRepository, MigrationService};
+pub use files::{FileManager, FileRepository, FileValidator, FileManagerConfig};
 pub use search::{SearchEngine, SearchQuery, SearchResult, SearchFilters, SearchCache};
 pub use services::ItemService;
 pub use error::{AppError, Result};
@@ -52,6 +54,7 @@ pub struct AppState {
     pub rate_limiter: RateLimiter,
     pub auth_service: Option<AuthService>,
     pub websocket_manager: Option<WebSocketManager>,
+    pub file_manager: Option<FileManager>,
 }
 
 impl Default for AppState {
@@ -70,6 +73,7 @@ impl Default for AppState {
             rate_limiter: RateLimiter::new(100, 60),
             auth_service: None,
             websocket_manager: None,
+            file_manager: None,
         }
     }
 }
@@ -92,6 +96,7 @@ impl AppState {
             rate_limiter: RateLimiter::new(100, 60),
             auth_service: None,
             websocket_manager: None,
+            file_manager: None,
         }
     }
 
@@ -102,6 +107,11 @@ impl AppState {
 
     pub fn with_websocket(mut self, websocket_manager: WebSocketManager) -> Self {
         self.websocket_manager = Some(websocket_manager);
+        self
+    }
+
+    pub fn with_file_manager(mut self, file_manager: FileManager) -> Self {
+        self.file_manager = Some(file_manager);
         self
     }
 
@@ -124,6 +134,10 @@ pub fn create_app(state: AppState) -> Router {
     Router::new()
         .merge(create_routes())
         .layer(cors_layer_permissive())
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            middleware::auth::optional_jwt_auth_middleware,
+        ))
         .layer(axum_middleware::from_fn_with_state(
             state.rate_limiter.clone(),
             middleware::rate_limit::rate_limit_middleware,
