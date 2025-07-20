@@ -314,7 +314,25 @@ mod tests {
         .await
         .unwrap();
         
-        // Insert test user
+        sqlx::query(
+            r#"
+            CREATE TABLE items (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                tags TEXT,
+                metadata TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                created_by INTEGER,
+                FOREIGN KEY (created_by) REFERENCES users (id)
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
         sqlx::query("INSERT INTO users (id, username, email, password_hash, created_at) VALUES (1, 'test', 'test@example.com', 'hash', datetime('now'))")
             .execute(&pool)
             .await
