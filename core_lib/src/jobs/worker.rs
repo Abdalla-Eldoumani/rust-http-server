@@ -31,10 +31,8 @@ impl WorkerPool {
         let (job_sender, job_receiver) = mpsc::unbounded_channel();
         let semaphore = Arc::new(Semaphore::new(worker_count));
 
-        // Create a shared receiver using Arc<Mutex<>>
         let shared_receiver = Arc::new(tokio::sync::Mutex::new(job_receiver));
 
-        // Start worker tasks
         for worker_id in 0..worker_count {
             let worker = JobWorker::new(
                 worker_id,
@@ -98,7 +96,6 @@ impl JobWorker {
         info!("Worker {} started", self.id);
 
         loop {
-            // Get job from shared receiver
             let job = {
                 let mut receiver = self.job_receiver.lock().await;
                 receiver.recv().await
@@ -106,7 +103,6 @@ impl JobWorker {
 
             match job {
                 Some(job) => {
-                    // Acquire semaphore permit to limit concurrent jobs
                     let _permit = match self.semaphore.acquire().await {
                         Ok(permit) => permit,
                         Err(_) => {
@@ -130,27 +126,22 @@ impl JobWorker {
     async fn process_job(&self, mut job: Job) -> Result<()> {
         info!("Worker {} processing job {} (type: {:?})", self.id, job.id, job.job_type);
 
-        // Mark job as running
         job.start();
         let updated_job = self.repository.update(&job).await?;
         
-        // Send WebSocket notification for job started
         if let Some(ws_manager) = &self.websocket_manager {
             let event = WebSocketEvent::JobStarted(JobResponse::from(updated_job.clone()));
             ws_manager.broadcast(event).await;
         }
 
-        // Process the job based on its type
         let result = self.execute_job(&job).await;
 
-        // Update job status based on result
         match result {
             Ok(job_result) => {
                 job.complete(job_result);
                 let completed_job = self.repository.update(&job).await?;
                 info!("Worker {} completed job {}", self.id, job.id);
                 
-                // Send WebSocket notification for job completed
                 if let Some(ws_manager) = &self.websocket_manager {
                     let event = WebSocketEvent::JobCompleted(JobResponse::from(completed_job));
                     ws_manager.broadcast(event).await;
@@ -162,7 +153,6 @@ impl JobWorker {
                 let failed_job = self.repository.update(&job).await?;
                 error!("Worker {} failed job {}: {}", self.id, job.id, e);
                 
-                // Send WebSocket notification for job failed
                 if let Some(ws_manager) = &self.websocket_manager {
                     let event = WebSocketEvent::JobFailed(JobResponse::from(failed_job));
                     ws_manager.broadcast(event).await;
@@ -185,17 +175,14 @@ impl JobWorker {
     }
 
     async fn execute_bulk_import(&self, job: &Job) -> Result<Option<serde_json::Value>> {
-        // Simulate bulk import processing
         info!("Executing bulk import for job {}", job.id);
         
-        // Extract import parameters from payload
         let import_data = job.payload.get("data")
             .ok_or_else(|| AppError::Job("Missing import data in payload".to_string()))?;
         
         let items = import_data.as_array()
             .ok_or_else(|| AppError::Job("Import data must be an array".to_string()))?;
 
-        // Simulate processing time
         tokio::time::sleep(tokio::time::Duration::from_millis(100 * items.len() as u64)).await;
 
         let result = serde_json::json!({
@@ -216,13 +203,12 @@ impl JobWorker {
         
         let filters = job.payload.get("filters");
 
-        // Simulate export processing
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
         let result = serde_json::json!({
             "export_format": format,
             "filters_applied": filters.is_some(),
-            "exported_count": 100, // Simulated count
+            "exported_count": 100,
             "file_path": format!("/exports/export_{}.{}", job.id, format),
             "success": true
         });
@@ -237,7 +223,6 @@ impl JobWorker {
             .and_then(|t| t.as_str())
             .ok_or_else(|| AppError::Job("Missing migration_type in payload".to_string()))?;
 
-        // Simulate migration processing
         tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
         let result = serde_json::json!({
@@ -261,7 +246,6 @@ impl JobWorker {
             .and_then(|o| o.as_str())
             .unwrap_or("process");
 
-        // Simulate file processing
         tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
 
         let result = serde_json::json!({
@@ -285,7 +269,6 @@ impl JobWorker {
             .and_then(|s| s.as_str())
             .unwrap_or("Notification");
 
-        // Simulate email sending
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
         let result = serde_json::json!({
@@ -307,7 +290,6 @@ impl JobWorker {
 
         let date_range = job.payload.get("date_range");
 
-        // Simulate report generation
         tokio::time::sleep(tokio::time::Duration::from_secs(4)).await;
 
         let result = serde_json::json!({
@@ -365,16 +347,12 @@ mod tests {
         let job = Job::new(job_request);
         let job_id = job.id;
         
-        // Save job to repository
         repo.create(&job).await.unwrap();
         
-        // Submit to worker pool
         pool.submit_job(job).await.unwrap();
 
-        // Wait for processing
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-        // Check job status
         let updated_job = repo.get_by_id(job_id).await.unwrap().unwrap();
         assert_eq!(updated_job.status, JobStatus::Completed);
         assert!(updated_job.result.is_some());
