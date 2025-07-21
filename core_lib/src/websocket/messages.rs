@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use crate::store::Item;
 use crate::metrics::MetricsSnapshot;
+use crate::jobs::JobResponse;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
@@ -10,6 +11,11 @@ pub enum WebSocketMessage {
     ItemUpdated(Item),
     ItemDeleted { id: u64 },
     MetricsUpdate(MetricsSnapshot),
+    JobStarted(JobResponse),
+    JobCompleted(JobResponse),
+    JobFailed(JobResponse),
+    JobCancelled(JobResponse),
+    JobRetrying(JobResponse),
     Connected { connection_id: Uuid },
     Ping,
     Pong,
@@ -22,6 +28,11 @@ pub enum WebSocketEvent {
     ItemUpdated(Item),
     ItemDeleted(u64),
     MetricsUpdate(MetricsSnapshot),
+    JobStarted(JobResponse),
+    JobCompleted(JobResponse),
+    JobFailed(JobResponse),
+    JobCancelled(JobResponse),
+    JobRetrying(JobResponse),
     Custom(serde_json::Value),
 }
 
@@ -32,6 +43,11 @@ impl From<WebSocketEvent> for WebSocketMessage {
             WebSocketEvent::ItemUpdated(item) => WebSocketMessage::ItemUpdated(item),
             WebSocketEvent::ItemDeleted(id) => WebSocketMessage::ItemDeleted { id },
             WebSocketEvent::MetricsUpdate(metrics) => WebSocketMessage::MetricsUpdate(metrics),
+            WebSocketEvent::JobStarted(job) => WebSocketMessage::JobStarted(job),
+            WebSocketEvent::JobCompleted(job) => WebSocketMessage::JobCompleted(job),
+            WebSocketEvent::JobFailed(job) => WebSocketMessage::JobFailed(job),
+            WebSocketEvent::JobCancelled(job) => WebSocketMessage::JobCancelled(job),
+            WebSocketEvent::JobRetrying(job) => WebSocketMessage::JobRetrying(job),
             WebSocketEvent::Custom(value) => {
                 if let Ok(msg) = serde_json::from_value::<WebSocketMessage>(value.clone()) {
                     msg
