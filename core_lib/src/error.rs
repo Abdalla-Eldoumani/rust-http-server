@@ -36,6 +36,9 @@ pub enum AppError {
     #[error("WebSocket error: {0}")]
     WebSocket(String),
 
+    #[error("Job processing error: {0}")]
+    Job(String),
+
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 
@@ -64,6 +67,10 @@ impl IntoResponse for AppError {
             AppError::WebSocket(msg) => {
                 tracing::error!("WebSocket error: {}", msg);
                 (StatusCode::INTERNAL_SERVER_ERROR, "WebSocket error".to_string())
+            }
+            AppError::Job(msg) => {
+                tracing::error!("Job processing error: {}", msg);
+                (StatusCode::INTERNAL_SERVER_ERROR, "Job processing error".to_string())
             }
             AppError::IoError(err) => {
                 tracing::error!("IO error: {:?}", err);
