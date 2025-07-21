@@ -54,6 +54,7 @@ pub struct CacheConfig {
     pub max_size: usize,
     pub default_ttl_seconds: u64,
     pub cleanup_interval_seconds: u64,
+    pub enable_stats: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,6 +151,7 @@ impl Default for CacheConfig {
             max_size: 1000,
             default_ttl_seconds: 3600,
             cleanup_interval_seconds: 300,
+            enable_stats: true,
         }
     }
 }
