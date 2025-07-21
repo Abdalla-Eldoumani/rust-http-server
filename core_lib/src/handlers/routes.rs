@@ -41,6 +41,7 @@ pub fn create_routes() -> Router<AppState> {
         .nest("/auth", create_auth_routes_with_middleware())
         .nest("/api/files", create_file_routes())
         .nest("/api/jobs", create_job_routes())
+        .nest("/api/cache", create_cache_routes())
 }
 
 async fn handle_root(State(state): State<AppState>) -> impl IntoResponse {
@@ -93,6 +94,15 @@ async fn handle_root(State(state): State<AppState>) -> impl IntoResponse {
             "status": "/api/jobs/{id}/status",
             "cancel": "/api/jobs/{id}/cancel",
             "retry": "/api/jobs/{id}/retry"
+        });
+    }
+
+    if state.cache_manager.is_some() {
+        endpoints["cache"] = serde_json::json!({
+            "stats": "/api/cache/stats",
+            "health": "/api/cache/health",
+            "clear": "/api/cache/clear",
+            "invalidate": "/api/cache/invalidate"
         });
     }
 
@@ -338,6 +348,12 @@ async fn handle_post_item(
         payload.metadata
     ).await?;
 
+    // Invalidate cache after creating item
+    if let Some(cache_manager) = &state.cache_manager {
+        cache_manager.invalidate_items_cache();
+        cache_manager.invalidate_search_cache();
+    }
+
     if let Some(ws_manager) = &state.websocket_manager {
         let event = crate::websocket::WebSocketEvent::ItemCreated(item.clone());
         ws_manager.broadcast(event).await;
@@ -369,6 +385,13 @@ async fn handle_put_item(
         payload.metadata
     ).await?;
 
+    // Invalidate cache after updating item
+    if let Some(cache_manager) = &state.cache_manager {
+        cache_manager.invalidate_item_cache(id);
+        cache_manager.invalidate_items_cache();
+        cache_manager.invalidate_search_cache();
+    }
+
     if let Some(ws_manager) = &state.websocket_manager {
         let event = crate::websocket::WebSocketEvent::ItemUpdated(item.clone());
         ws_manager.broadcast(event).await;
@@ -388,6 +411,13 @@ async fn handle_delete_item(
     }
 
     state.item_service.delete_item(id).await?;
+    
+    // Invalidate cache after deleting item
+    if let Some(cache_manager) = &state.cache_manager {
+        cache_manager.invalidate_item_cache(id);
+        cache_manager.invalidate_items_cache();
+        cache_manager.invalidate_search_cache();
+    }
     
     if let Some(ws_manager) = &state.websocket_manager {
         let event = crate::websocket::WebSocketEvent::ItemDeleted(id);
@@ -419,6 +449,13 @@ async fn handle_patch_item(
     }
 
     let item = state.item_service.patch_item(id, patch).await?;
+    
+    // Invalidate cache after patching item
+    if let Some(cache_manager) = &state.cache_manager {
+        cache_manager.invalidate_item_cache(id);
+        cache_manager.invalidate_items_cache();
+        cache_manager.invalidate_search_cache();
+    }
     
     if let Some(ws_manager) = &state.websocket_manager {
         let event = crate::websocket::WebSocketEvent::ItemUpdated(item.clone());
@@ -452,6 +489,12 @@ async fn handle_form_submit(
         vec!["form-submission".to_string()],
         Some(metadata)
     ).await?;
+
+    // Invalidate cache after creating item via form
+    if let Some(cache_manager) = &state.cache_manager {
+        cache_manager.invalidate_items_cache();
+        cache_manager.invalidate_search_cache();
+    }
 
     if let Some(ws_manager) = &state.websocket_manager {
         let event = crate::websocket::WebSocketEvent::ItemCreated(item.clone());
@@ -1142,4 +1185,14 @@ fn create_job_routes() -> Router<AppState> {
         .route("/:id/status", get(jobs::get_job_status))
         .route("/:id/cancel", delete(jobs::cancel_job))
         .route("/:id/retry", post(jobs::retry_job))
+}
+
+fn create_cache_routes() -> Router<AppState> {
+    use crate::handlers::cache;
+    
+    Router::new()
+        .route("/stats", get(cache::get_cache_stats))
+        .route("/health", get(cache::get_cache_health))
+        .route("/clear", axum::routing::post(cache::clear_cache))
+        .route("/invalidate", axum::routing::post(cache::invalidate_cache_pattern))
 }
