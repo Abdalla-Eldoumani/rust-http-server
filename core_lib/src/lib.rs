@@ -6,6 +6,7 @@ pub mod database;
 pub mod error;
 pub mod files;
 pub mod handlers;
+pub mod jobs;
 pub mod middleware;
 pub mod models;
 pub mod search;
@@ -18,6 +19,7 @@ pub use auth::{AuthService, JwtService, UserRepository, UserRepositoryTrait};
 pub use config::AppConfig;
 pub use database::{DatabaseManager, get_database_pool, run_migrations, ItemRepository, MigrationService};
 pub use files::{FileManager, FileRepository, FileValidator, FileManagerConfig};
+pub use jobs::{JobQueue, JobRepository, JobRepositoryTrait, Job, JobRequest, JobResponse, JobStatus, JobType, JobPriority, JobListParams, JobListResponse};
 pub use search::{SearchEngine, SearchQuery, SearchResult, SearchFilters, SearchCache};
 pub use services::ItemService;
 pub use error::{AppError, Result};
@@ -38,7 +40,7 @@ use axum::{
     middleware::Next,
     body::Body,
 };
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 use tokio::signal;
 use tracing::info;
 
@@ -55,6 +57,7 @@ pub struct AppState {
     pub auth_service: Option<AuthService>,
     pub websocket_manager: Option<WebSocketManager>,
     pub file_manager: Option<FileManager>,
+    pub job_queue: Option<JobQueue>,
 }
 
 impl Default for AppState {
@@ -74,6 +77,7 @@ impl Default for AppState {
             auth_service: None,
             websocket_manager: None,
             file_manager: None,
+            job_queue: None,
         }
     }
 }
@@ -97,6 +101,7 @@ impl AppState {
             auth_service: None,
             websocket_manager: None,
             file_manager: None,
+            job_queue: None,
         }
     }
 
@@ -115,6 +120,17 @@ impl AppState {
         self
     }
 
+    pub fn with_job_queue(mut self, job_queue: JobQueue) -> Self {
+        self.job_queue = Some(job_queue);
+        self
+    }
+
+    pub async fn create_job_queue_with_websocket(&self, job_repository: JobRepository) -> Result<JobQueue> {
+        let websocket_manager = self.websocket_manager.as_ref().map(|ws| Arc::new(ws.clone()));
+        let job_queue = JobQueue::new_with_websocket(job_repository, websocket_manager);
+        Ok(job_queue)
+    }
+
     pub async fn migrate_to_database_if_needed(&self) -> Result<()> {
         if let Some(repo) = self.item_service.repository() {
             let migration_service = MigrationService::new(repo.clone());
@@ -122,8 +138,7 @@ impl AppState {
             if migration_service.is_migration_needed(&self.store).await? {
                 info!("Starting automatic migration from in-memory store to database");
                 let result = migration_service.migrate_from_memory_store(&self.store).await?;
-                info!("Migration completed: {} items migrated successfully, {} failed", 
-                        result.successful_migrations, result.failed_count);
+                info!("Migration completed: {} items migrated successfully, {} failed", result.successful_migrations, result.failed_count);
             }
         }
         Ok(())
