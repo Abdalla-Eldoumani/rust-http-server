@@ -40,6 +40,7 @@ pub fn create_routes() -> Router<AppState> {
         .route("/ws", axum::routing::get(crate::websocket::websocket_handler))
         .nest("/auth", create_auth_routes_with_middleware())
         .nest("/api/files", create_file_routes())
+        .nest("/api/jobs", create_job_routes())
 }
 
 async fn handle_root(State(state): State<AppState>) -> impl IntoResponse {
@@ -77,6 +78,21 @@ async fn handle_root(State(state): State<AppState>) -> impl IntoResponse {
             "logout": "/auth/logout",
             "me": "/auth/me",
             "users": "/auth/users/{id}"
+        });
+    }
+
+    if state.job_queue.is_some() {
+        endpoints["jobs"] = serde_json::json!({
+            "submit": "/api/jobs",
+            "list": "/api/jobs",
+            "stats": "/api/jobs/stats",
+            "cleanup": "/api/jobs/cleanup",
+            "bulk_import": "/api/jobs/bulk-import",
+            "bulk_export": "/api/jobs/bulk-export",
+            "get": "/api/jobs/{id}",
+            "status": "/api/jobs/{id}/status",
+            "cancel": "/api/jobs/{id}/cancel",
+            "retry": "/api/jobs/{id}/retry"
         });
     }
 
@@ -1081,6 +1097,7 @@ async fn handle_export_items(
         }
     }
 }
+
 fn create_auth_routes_with_middleware() -> Router<AppState> {
     use crate::handlers::auth::{
         register_user, login_user, refresh_token, logout_user, 
@@ -1109,4 +1126,20 @@ fn create_file_routes() -> Router<AppState> {
         .route("/:id/associate", put(files::associate_file_with_item))
         .route("/", get(files::list_files))
         .route("/item/:id", get(files::get_item_files))
+}
+
+fn create_job_routes() -> Router<AppState> {
+    use crate::handlers::jobs;
+    use axum::routing::{delete, get, post};
+
+    Router::new()
+        .route("/", post(jobs::submit_job).get(jobs::list_jobs))
+        .route("/stats", get(jobs::get_queue_stats))
+        .route("/cleanup", post(jobs::cleanup_jobs))
+        .route("/bulk-import", post(jobs::submit_bulk_import))
+        .route("/bulk-export", post(jobs::submit_bulk_export))
+        .route("/:id", get(jobs::get_job))
+        .route("/:id/status", get(jobs::get_job_status))
+        .route("/:id/cancel", delete(jobs::cancel_job))
+        .route("/:id/retry", post(jobs::retry_job))
 }
