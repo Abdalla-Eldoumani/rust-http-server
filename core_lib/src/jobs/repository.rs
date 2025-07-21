@@ -50,7 +50,6 @@ impl JobRepository {
         .execute(&self.pool)
         .await?;
 
-        // Create indexes for better query performance
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)")
             .execute(&self.pool)
             .await?;
@@ -180,31 +179,29 @@ impl JobRepositoryTrait for JobRepository {
             bind_values.push(type_str.trim_matches('"').to_string());
         }
 
-        // Add sorting
         let sort_by = params.sort_by.as_deref().unwrap_or("created_at");
         let sort_order = params.sort_order.as_deref().unwrap_or("desc");
         query.push_str(&format!(" ORDER BY {} {}", sort_by, sort_order));
 
-        // Add pagination
         let limit = params.limit.unwrap_or(50);
         let offset = params.offset.unwrap_or(0);
         query.push_str(&format!(" LIMIT {} OFFSET {}", limit, offset));
 
-        // Get total count
         let mut count_query_builder = sqlx::query(&count_query);
         for value in &bind_values {
             count_query_builder = count_query_builder.bind(value);
         }
+
         let total: i64 = count_query_builder
             .fetch_one(&self.pool)
             .await?
             .get(0);
 
-        // Get jobs
         let mut query_builder = sqlx::query(&query);
         for value in &bind_values {
             query_builder = query_builder.bind(value);
         }
+        
         let rows = query_builder.fetch_all(&self.pool).await?;
 
         let jobs: Result<Vec<Job>> = rows.into_iter().map(|row| self.row_to_job(row)).collect();
