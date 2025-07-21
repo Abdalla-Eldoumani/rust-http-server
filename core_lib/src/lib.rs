@@ -1,6 +1,7 @@
 //! Core library containing business logic and route handlers for the HTTP server.
 
 pub mod auth;
+pub mod cache;
 pub mod config;
 pub mod database;
 pub mod error;
@@ -16,6 +17,7 @@ pub mod metrics;
 pub mod websocket;
 
 pub use auth::{AuthService, JwtService, UserRepository, UserRepositoryTrait};
+pub use cache::{CacheManager, CacheStats};
 pub use config::AppConfig;
 pub use database::{DatabaseManager, get_database_pool, run_migrations, ItemRepository, MigrationService};
 pub use files::{FileManager, FileRepository, FileValidator, FileManagerConfig};
@@ -26,6 +28,7 @@ pub use error::{AppError, Result};
 pub use handlers::routes::create_routes;
 pub use middleware::cors::{cors_layer, cors_layer_permissive};
 pub use middleware::auth::{AuthUser, jwt_auth_middleware, optional_jwt_auth_middleware, require_admin, require_self_or_admin};
+pub use middleware::cache::cache_middleware;
 pub use store::DataStore;
 pub use metrics::MetricsCollector;
 pub use middleware::rate_limit::RateLimiter;
@@ -58,6 +61,7 @@ pub struct AppState {
     pub websocket_manager: Option<WebSocketManager>,
     pub file_manager: Option<FileManager>,
     pub job_queue: Option<JobQueue>,
+    pub cache_manager: Option<CacheManager>,
 }
 
 impl Default for AppState {
@@ -78,6 +82,7 @@ impl Default for AppState {
             websocket_manager: None,
             file_manager: None,
             job_queue: None,
+            cache_manager: None,
         }
     }
 }
@@ -102,6 +107,7 @@ impl AppState {
             websocket_manager: None,
             file_manager: None,
             job_queue: None,
+            cache_manager: None,
         }
     }
 
@@ -122,6 +128,11 @@ impl AppState {
 
     pub fn with_job_queue(mut self, job_queue: JobQueue) -> Self {
         self.job_queue = Some(job_queue);
+        self
+    }
+
+    pub fn with_cache_manager(mut self, cache_manager: CacheManager) -> Self {
+        self.cache_manager = Some(cache_manager);
         self
     }
 
@@ -157,6 +168,7 @@ pub fn create_app(state: AppState) -> Router {
             state.rate_limiter.clone(),
             middleware::rate_limit::rate_limit_middleware,
         ))
+
         .layer(axum_middleware::from_fn_with_state(
             state.clone(),
             metrics_middleware,
