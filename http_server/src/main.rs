@@ -60,6 +60,12 @@ async fn main() -> Result<()> {
                 state = state.with_cache_manager(cache_manager);
                 info!("Cache manager initialized");
                 
+                state = state.with_health_checker();
+                info!("Health checker initialized");
+                
+                state = state.with_system_monitor();
+                info!("System monitor initialized");
+                
                 state
             }
             Err(e) => {
@@ -73,6 +79,12 @@ async fn main() -> Result<()> {
                 let cache_manager = CacheManager::default();
                 state = state.with_cache_manager(cache_manager);
                 info!("Cache manager initialized");
+                
+                state = state.with_health_checker();
+                info!("Health checker initialized");
+                
+                state = state.with_system_monitor();
+                info!("System monitor initialized");
                 
                 state
             }
@@ -88,6 +100,12 @@ async fn main() -> Result<()> {
         let cache_manager = CacheManager::default();
         state = state.with_cache_manager(cache_manager);
         info!("Cache manager initialized");
+        
+        state = state.with_health_checker();
+        info!("Health checker initialized");
+        
+        state = state.with_system_monitor();
+        info!("System monitor initialized");
         
         state
     };
