@@ -8,6 +8,8 @@ use std::collections::HashMap;
 use parking_lot::RwLock;
 use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc};
+use crate::monitoring::{SystemMetrics};
+use crate::monitoring::system::PerformanceMetrics;
 
 #[derive(Clone)]
 pub struct MetricsCollector {
@@ -18,6 +20,7 @@ pub struct MetricsCollector {
     pub requests_by_endpoint: Arc<RwLock<HashMap<String, u64>>>,
     pub response_times: Arc<RwLock<Vec<ResponseTime>>>,
     pub start_time: DateTime<Utc>,
+    pub health_status_changes: Arc<RwLock<Vec<HealthStatusChange>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,6 +43,9 @@ pub struct MetricsSnapshot {
     pub requests_per_second: f64,
     pub error_rate: f64,
     pub last_hour_response_times: Vec<ResponseTime>,
+    pub system_metrics: Option<SystemMetrics>,
+    pub performance_metrics: Option<PerformanceMetrics>,
+    pub health_status_changes: Vec<HealthStatusChange>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,6 +53,15 @@ pub struct EndpointMetric {
     pub endpoint: String,
     pub count: u64,
     pub percentage: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthStatusChange {
+    pub timestamp: DateTime<Utc>,
+    pub component: String,
+    pub old_status: String,
+    pub new_status: String,
+    pub message: String,
 }
 
 impl MetricsCollector {
@@ -59,6 +74,7 @@ impl MetricsCollector {
             requests_by_endpoint: Arc::new(RwLock::new(HashMap::new())),
             response_times: Arc::new(RwLock::new(Vec::new())),
             start_time: Utc::now(),
+            health_status_changes: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
@@ -92,6 +108,24 @@ impl MetricsCollector {
         if times.len() > 1000 {
             let drain_end = times.len() - 1000;
             times.drain(0..drain_end);
+        }
+    }
+
+    pub fn record_health_status_change(&self, component: String, old_status: String, new_status: String, message: String) {
+        let change = HealthStatusChange {
+            timestamp: Utc::now(),
+            component,
+            old_status,
+            new_status,
+            message,
+        };
+
+        let mut changes = self.health_status_changes.write();
+        changes.push(change);
+        
+        if changes.len() > 100 {
+            let excess = changes.len() - 100;
+            changes.drain(0..excess);
         }
     }
 
@@ -135,6 +169,8 @@ impl MetricsCollector {
             0.0
         };
 
+        let health_changes = self.health_status_changes.read().clone();
+
         MetricsSnapshot {
             total_requests: total,
             successful_requests: successful,
@@ -150,6 +186,9 @@ impl MetricsCollector {
                 0.0
             },
             last_hour_response_times: recent_times,
+            system_metrics: None,
+            performance_metrics: None,
+            health_status_changes: health_changes,
         }
     }
 }
