@@ -115,7 +115,7 @@ impl Default for DatabaseConfig {
 impl Default for AuthConfig {
     fn default() -> Self {
         Self {
-            jwt_secret: "your-secret-key-change-in-production".to_string(),
+            jwt_secret: "1a9e1a1d8f3e9613a555adea1881bbd1".to_string(),
             jwt_expiration_hours: 24,
             jwt_refresh_expiration_days: 7,
             password_min_length: 8,
@@ -231,7 +231,7 @@ impl AppConfig {
             ));
         }
 
-        if self.auth.jwt_secret == "your-secret-key-change-in-production" {
+        if self.auth.jwt_secret == "1a9e1a1d8f3e9613a555adea1881bbd1" {
             tracing::warn!("Using default JWT secret - change this in production!");
         }
 
