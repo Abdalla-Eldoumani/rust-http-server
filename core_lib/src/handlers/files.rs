@@ -11,6 +11,8 @@ use crate::{
     error::{AppError, Result},
     files::{FileUpload, FileListQuery, FileMetadata},
     middleware::auth::AuthUser,
+    models::files::{FileUploadRequest},
+    validation::{ContextValidatable, middleware::extract_validation_context, SecurityValidator},
     AppState,
 };
 
@@ -54,6 +56,8 @@ pub struct FileListResponse {
 
 pub async fn upload_file(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    connect_info: Option<axum::extract::ConnectInfo<std::net::SocketAddr>>,
     auth_user: Option<Extension<AuthUser>>,
     Query(query): Query<FileUploadQuery>,
     mut multipart: Multipart,
@@ -84,6 +88,41 @@ pub async fn upload_file(
             let data = field.bytes().await.map_err(|e| {
                 AppError::BadRequest(format!("Failed to read file data: {}", e))
             })?;
+
+            let file_request = FileUploadRequest {
+                filename: filename.clone(),
+                content_type: content_type.clone(),
+                size: data.len() as u64,
+                description: None,
+                tags: None,
+            };
+
+            let user_id = auth_user.as_ref().map(|Extension(user)| user.user_id as u64);
+            let addr = connect_info.map(|ci| ci.0).unwrap_or_else(|| {
+                std::net::SocketAddr::from(([127, 0, 0, 1], 8080))
+            });
+            let context = extract_validation_context(&headers, &addr, user_id, None);
+            
+            let validation_result = file_request.validate_with_context(&context);
+            if !validation_result.is_valid {
+                return Err(AppError::FileValidation(format!(
+                    "File validation failed: {}",
+                    serde_json::to_string(&validation_result.errors).unwrap_or_default()
+                )));
+            }
+
+            let security_result = SecurityValidator::validate_file_upload_security(
+                &filename,
+                &content_type,
+                &data,
+            );
+            
+            if !security_result.is_valid {
+                return Err(AppError::SecurityValidation(format!(
+                    "File security validation failed: {}",
+                    serde_json::to_string(&security_result.errors).unwrap_or_default()
+                )));
+            }
 
             let uploaded_by = match auth_user.as_ref() {
                 Some(Extension(user)) => user.user_id as u64,
