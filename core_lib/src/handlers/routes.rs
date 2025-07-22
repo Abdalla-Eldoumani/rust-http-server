@@ -3,7 +3,11 @@
 use crate::{
     error::{AppError, Result},
     handlers::files,
-    models::request::{ApiResponse, FormPayload},
+    models::{
+        request::{ApiResponse, FormPayload},
+        items::{CreateItemRequest, ItemListQuery, ItemExportQuery},
+    },
+    validation::{ValidationContext, ContextValidatable, middleware::extract_validation_context},
     AppState,
 };
 use axum::{
@@ -128,12 +132,7 @@ async fn handle_stats(State(state): State<AppState>) -> Result<impl IntoResponse
     Ok(Json(ApiResponse::success(stats)))
 }
 
-#[derive(Debug, Deserialize)]
-struct ItemsQuery {
-    limit: Option<usize>,
-    offset: Option<usize>,
-}
-
+// Using ItemListQuery from models instead and Using a custom SearchQuery for backward compatibility with existing search functionality
 #[derive(Debug, Deserialize)]
 struct SearchQuery {
     q: Option<String>,
@@ -151,11 +150,74 @@ struct SearchQuery {
     offset: Option<u64>,
 }
 
+impl ContextValidatable for SearchQuery {
+    fn validate_with_context(&self, _context: &ValidationContext) -> crate::validation::ValidationResult {
+        let mut result = crate::validation::ValidationResult::success();
+        
+        if let Some(q) = &self.q {
+            if q.len() > 500 {
+                result.add_error("q", "Search query is too long");
+            }
+            if let Err(_) = crate::validation::rules::validate_no_sql_injection(q) {
+                result.add_error("q", "Search query contains invalid characters");
+            }
+        }
+        
+        if let Some(tags) = &self.tags {
+            let tag_list: Vec<&str> = tags.split(',').collect();
+            if tag_list.len() > 20 {
+                result.add_error("tags", "Too many tags in search");
+            }
+            for tag in tag_list {
+                if let Err(_) = crate::validation::rules::validate_no_sql_injection(tag.trim()) {
+                    result.add_error("tags", "Tag contains invalid characters");
+                }
+            }
+        }
+        
+        if let Some(sort_by) = &self.sort_by {
+            let allowed_fields = ["name", "created_at", "updated_at", "relevance"];
+            if !allowed_fields.contains(&sort_by.as_str()) {
+                result.add_error("sort_by", "Invalid sort field");
+            }
+        }
+        
+        if let Some(sort_order) = &self.sort_order {
+            if !["asc", "desc"].contains(&sort_order.to_lowercase().as_str()) {
+                result.add_error("sort_order", "Sort order must be 'asc' or 'desc'");
+            }
+        }
+        
+        if let Some(limit) = self.limit {
+            if limit > 1000 {
+                result.add_error("limit", "Limit cannot exceed 1000");
+            }
+        }
+        
+        result
+    }
+}
+
 async fn handle_search_items(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    connect_info: Option<axum::extract::ConnectInfo<std::net::SocketAddr>>,
     Query(params): Query<SearchQuery>
 ) -> Result<impl IntoResponse> {
     info!("GET /api/items/search - query: {:?}", params);
+    
+    let addr = connect_info.map(|ci| ci.0).unwrap_or_else(|| {
+        std::net::SocketAddr::from(([127, 0, 0, 1], 8080))
+    });
+    let context = extract_validation_context(&headers, &addr, None, None);
+    
+    let validation_result = params.validate_with_context(&context);
+    if !validation_result.is_valid {
+        return Err(AppError::Validation(format!(
+            "Search query validation failed: {}",
+            serde_json::to_string(&validation_result.errors).unwrap_or_default()
+        )));
+    }
     
     let search_engine = state.search_engine.as_ref().ok_or_else(|| AppError::BadRequest("Search functionality not available".to_string()))?;
     
@@ -272,17 +334,37 @@ async fn handle_search_items(
 
 async fn handle_get_items(
     State(state): State<AppState>,
-    Query(params): Query<ItemsQuery>
+    headers: HeaderMap,
+    connect_info: Option<axum::extract::ConnectInfo<std::net::SocketAddr>>,
+    Query(params): Query<ItemListQuery>
 ) -> Result<impl IntoResponse> {
-    info!("GET /api/items - limit: {:?}, offset: {:?}", params.limit, params.offset);
+    info!("GET /api/items - page_size: {:?}, page: {:?}", params.page_size, params.page);
     
-    let items = state.item_service.get_items(params.limit, params.offset).await?;
+    let addr = connect_info.map(|ci| ci.0).unwrap_or_else(|| {
+        std::net::SocketAddr::from(([127, 0, 0, 1], 8080))
+    });
+    let context = extract_validation_context(&headers, &addr, None, None);
+    
+    let validation_result = params.validate_with_context(&context);
+    if !validation_result.is_valid {
+        return Err(AppError::Validation(format!(
+            "Query validation failed: {}",
+            serde_json::to_string(&validation_result.errors).unwrap_or_default()
+        )));
+    }
+    
+    let page_size = params.page_size.unwrap_or(50) as usize;
+    let page = params.page.unwrap_or(1);
+    let offset = ((page - 1) * page_size as u32) as usize;
+    
+    let items = state.item_service.get_items(Some(page_size), Some(offset)).await?;
     
     Ok(Json(ApiResponse::success(serde_json::json!({
         "items": items,
         "count": items.len(),
-        "limit": params.limit,
-        "offset": params.offset.unwrap_or(0),
+        "page_size": page_size,
+        "page": page,
+        "offset": offset,
         "source": if state.item_service.is_using_database() { "database" } else { "memory" }
     }))))
 }
@@ -301,26 +383,25 @@ async fn handle_get_item(
     Ok(Json(ApiResponse::success(item)))
 }
 
-#[derive(Debug, Deserialize)]
-struct CreateItemRequest {
-    name: String,
-    description: Option<String>,
-    tags: Option<Vec<String>>,
-    metadata: Option<serde_json::Value>,
-}
-
 async fn handle_post_item(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    connect_info: Option<axum::extract::ConnectInfo<std::net::SocketAddr>>,
     Json(payload): Json<CreateItemRequest>
 ) -> Result<impl IntoResponse> {
     info!("POST /api/items - name: {}", payload.name);
     
-    if payload.name.trim().is_empty() {
-        return Err(AppError::BadRequest("Name cannot be empty".to_string()));
-    }
+    let addr = connect_info.map(|ci| ci.0).unwrap_or_else(|| {
+        std::net::SocketAddr::from(([127, 0, 0, 1], 8080))
+    });
+    let context = extract_validation_context(&headers, &addr, None, None);
     
-    if payload.name.len() > 100 {
-        return Err(AppError::BadRequest("Name too long (max 100 characters)".to_string()));
+    let validation_result = payload.validate_with_context(&context);
+    if !validation_result.is_valid {
+        return Err(AppError::Validation(format!(
+            "Validation failed: {}",
+            serde_json::to_string(&validation_result.errors).unwrap_or_default()
+        )));
     }
 
     let item = state.item_service.create_item(
@@ -346,6 +427,8 @@ async fn handle_post_item(
 async fn handle_put_item(
     State(state): State<AppState>,
     Path(id): Path<u64>,
+    headers: HeaderMap,
+    connect_info: Option<axum::extract::ConnectInfo<std::net::SocketAddr>>,
     Json(payload): Json<CreateItemRequest>,
 ) -> Result<impl IntoResponse> {
     info!("PUT /api/items/{} - name: {}", id, payload.name);
@@ -354,8 +437,17 @@ async fn handle_put_item(
         return Err(AppError::BadRequest("Invalid item ID".to_string()));
     }
     
-    if payload.name.trim().is_empty() {
-        return Err(AppError::BadRequest("Name cannot be empty".to_string()));
+    let addr = connect_info.map(|ci| ci.0).unwrap_or_else(|| {
+        std::net::SocketAddr::from(([127, 0, 0, 1], 8080))
+    });
+    let context = extract_validation_context(&headers, &addr, None, None);
+    
+    let validation_result = payload.validate_with_context(&context);
+    if !validation_result.is_valid {
+        return Err(AppError::Validation(format!(
+            "Validation failed: {}",
+            serde_json::to_string(&validation_result.errors).unwrap_or_default()
+        )));
     }
 
     let item = state.item_service.update_item(
@@ -445,12 +537,23 @@ async fn handle_patch_item(
 
 async fn handle_form_submit(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    connect_info: Option<axum::extract::ConnectInfo<std::net::SocketAddr>>,
     Form(form): Form<FormPayload>
 ) -> Result<impl IntoResponse> {
     info!("Form submission - name: {}, email: {}", form.name, form.email);
     
-    if form.email.is_empty() || !form.email.contains('@') {
-        return Err(AppError::BadRequest("Invalid email address".to_string()));
+    let addr = connect_info.map(|ci| ci.0).unwrap_or_else(|| {
+        std::net::SocketAddr::from(([127, 0, 0, 1], 8080))
+    });
+    let context = extract_validation_context(&headers, &addr, None, None);
+    
+    let validation_result = form.validate_with_context(&context);
+    if !validation_result.is_valid {
+        return Err(AppError::Validation(format!(
+            "Form validation failed: {}",
+            serde_json::to_string(&validation_result.errors).unwrap_or_default()
+        )));
     }
     
     let item_name = format!("Form submission from {}", form.name);
@@ -1056,9 +1159,25 @@ async fn handle_dashboard() -> impl IntoResponse {
 
 async fn handle_export_items(
     State(state): State<AppState>,
-    Query(params): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+    connect_info: Option<axum::extract::ConnectInfo<std::net::SocketAddr>>,
+    Query(params): Query<ItemExportQuery>,
 ) -> Result<impl IntoResponse> {
-    let format = params.get("format").map(|s| s.as_str()).unwrap_or("json");
+
+    let addr = connect_info.map(|ci| ci.0).unwrap_or_else(|| {
+        std::net::SocketAddr::from(([127, 0, 0, 1], 8080))
+    });
+    let context = extract_validation_context(&headers, &addr, None, None);
+    
+    let validation_result = params.validate_with_context(&context);
+    if !validation_result.is_valid {
+        return Err(AppError::Validation(format!(
+            "Export query validation failed: {}",
+            serde_json::to_string(&validation_result.errors).unwrap_or_default()
+        )));
+    }
+    
+    let format = params.format.as_deref().unwrap_or("json");
     let items = state.item_service.get_items(None, None).await?;
     
     match format {
