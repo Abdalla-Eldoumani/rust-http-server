@@ -16,6 +16,7 @@ pub mod search;
 pub mod services;
 pub mod store;
 pub mod metrics;
+pub mod validation;
 pub mod websocket;
 
 pub use auth::{AuthService, JwtService, UserRepository, UserRepositoryTrait};
@@ -36,6 +37,7 @@ pub use middleware::cache::cache_middleware;
 pub use store::DataStore;
 pub use metrics::MetricsCollector;
 pub use middleware::rate_limit::RateLimiter;
+pub use validation::{ValidationResult, ValidationContext, Validatable, ContextValidatable, SecurityValidator};
 pub use websocket::{WebSocketManager, websocket_handler};
 
 use axum::{
@@ -198,6 +200,7 @@ pub fn create_app(state: AppState) -> Router {
             state.clone(),
             metrics_middleware,
         ))
+        .layer(axum_middleware::from_fn(validation::middleware::validation_middleware))
         .layer(axum_middleware::from_fn(middleware::logging::log_request))
         .with_state(state)
 }
