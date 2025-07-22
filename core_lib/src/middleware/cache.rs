@@ -1,9 +1,9 @@
 use axum::{
     body::Body,
-    extract::{Request, State},
-    http::{HeaderValue, Method},
+    extract::State,
+    http::{HeaderValue, Method, Request},
     middleware::Next,
-    response::{Response},
+    response::Response,
 };
 use std::time::Duration;
 use tracing::{debug, warn};
@@ -36,9 +36,15 @@ pub async fn cache_middleware(
     request: Request<Body>,
     next: Next,
 ) -> std::result::Result<Response, std::convert::Infallible> {
+    debug!("Cache middleware called for: {} {}", request.method(), request.uri());
+    
     let cache_manager = match &state.cache_manager {
-        Some(cache) => cache,
+        Some(cache) => {
+            debug!("Cache manager found, proceeding with caching logic");
+            cache
+        },
         None => {
+            debug!("No cache manager found, skipping cache");
             return Ok(next.run(request).await);
         }
     };
@@ -60,13 +66,66 @@ pub async fn cache_middleware(
     let response = next.run(request).await;
     
     if response.status().is_success() {
-        cache_response(cache_manager, &cache_key, &response, &config).await;
-    }
+        let (parts, body) = response.into_parts();
+        
+        match axum::body::to_bytes(body, config.max_response_size).await {
+            Ok(body_bytes) => {
+                let cached_response = CachedResponse {
+                    status_code: parts.status.as_u16(),
+                    headers: parts.headers
+                        .iter()
+                        .filter_map(|(name, value)| {
+                            let name_str = name.as_str().to_lowercase();
+                            if should_cache_header(&name_str) {
+                                value.to_str().ok().map(|v| (name.to_string(), v.to_string()))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect(),
+                    body: body_bytes.to_vec(),
+                };
 
-    Ok(response)
+                if let Err(e) = cache_manager.set_with_ttl(&cache_key, &cached_response, Some(config.default_ttl)) {
+                    warn!("Failed to cache response for key {}: {}", cache_key, e);
+                } else {
+                    debug!("Cached response for key: {} ({} bytes)", cache_key, cached_response.body.len());
+                }
+
+                let mut response_builder = Response::builder().status(parts.status);
+                
+                for (name, value) in parts.headers.iter() {
+                    response_builder = response_builder.header(name, value);
+                }
+                
+                response_builder = response_builder.header("X-Cache", "MISS");
+                
+                Ok(match response_builder.body(Body::from(body_bytes.clone())) {
+                    Ok(response) => response,
+                    Err(_) => {
+                        Response::builder()
+                            .status(parts.status)
+                            .header("X-Cache", "MISS")
+                            .body(Body::from(body_bytes))
+                            .unwrap_or_else(|_| Response::new(Body::empty()))
+                    }
+                })
+            }
+            Err(e) => {
+                warn!("Failed to extract response body for caching: {}", e);
+                let mut response = Response::from_parts(parts, Body::empty());
+                response.headers_mut().insert("X-Cache", HeaderValue::from_static("MISS"));
+                Ok(response)
+            }
+        }
+    } else {
+        let (mut parts, body) = response.into_parts();
+        parts.headers.insert("X-Cache", HeaderValue::from_static("MISS"));
+        Ok(Response::from_parts(parts, body))
+    }
 }
 
-fn should_cache_request(request: &Request, config: &CacheMiddlewareConfig) -> bool {
+fn should_cache_request(request: &Request<Body>, config: &CacheMiddlewareConfig) -> bool {
     match request.method() {
         &Method::GET => config.cache_get,
         &Method::POST => config.cache_post,
@@ -74,7 +133,7 @@ fn should_cache_request(request: &Request, config: &CacheMiddlewareConfig) -> bo
     }
 }
 
-fn generate_cache_key(request: &Request, config: &CacheMiddlewareConfig) -> String {
+fn generate_cache_key(request: &Request<Body>, config: &CacheMiddlewareConfig) -> String {
     let method = request.method().as_str();
     let path = request.uri().path();
     let query = request.uri().query().unwrap_or("");
@@ -115,51 +174,6 @@ async fn get_cached_response(
     }
     
     None
-}
-
-async fn cache_response(
-    cache_manager: &CacheManager,
-    cache_key: &str,
-    response: &Response,
-    config: &CacheMiddlewareConfig,
-) {
-    if let Some(content_length) = response.headers().get("content-length") {
-        if let Ok(length_str) = content_length.to_str() {
-            if let Ok(length) = length_str.parse::<usize>() {
-                if length > config.max_response_size {
-                    debug!("Response too large to cache: {} bytes", length);
-                    return;
-                }
-            }
-        }
-    }
-
-    let status_code = response.status().as_u16();
-    let headers: Vec<(String, String)> = response
-        .headers()
-        .iter()
-        .filter_map(|(name, value)| {
-            let name_str = name.as_str().to_lowercase();
-            if should_cache_header(&name_str) {
-                value.to_str().ok().map(|v| (name.to_string(), v.to_string()))
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    // We need to extract the body. This is a simplified version that caches headers and status
-    let cached_response = CachedResponse {
-        status_code,
-        headers,
-        body: Vec::new(),
-    };
-
-    if let Err(e) = cache_manager.set_with_ttl(cache_key, &cached_response, Some(config.default_ttl)) {
-        warn!("Failed to cache response for key {}: {}", cache_key, e);
-    } else {
-        debug!("Cached response for key: {}", cache_key);
-    }
 }
 
 fn should_cache_header(header_name: &str) -> bool {
