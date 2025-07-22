@@ -39,3 +39,6 @@ lru = "0.12"
 async-trait = "0.1"
 regex = "1.10"
 sysinfo = "0.30"
+
+validator = { version = "0.18", features = ["derive"] }
+lazy_static = "1.4"
