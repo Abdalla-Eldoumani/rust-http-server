@@ -20,10 +20,17 @@ use tracing::info;
 pub fn create_routes() -> Router<AppState> {
     Router::new()
         .route("/", get(handle_root))
-        .route("/health", get(handle_health))
+        .route("/health", get(crate::handlers::health::handle_health))
+        .route("/health/:component", get(crate::handlers::health::handle_component_health))
+        .route("/ready", get(crate::handlers::health::handle_readiness))
+        .route("/live", get(crate::handlers::health::handle_liveness))
         .route("/dashboard", get(handle_dashboard))
         .route("/api/stats", get(handle_stats))
-        .route("/api/metrics", get(handle_metrics))
+        .route("/api/metrics", get(crate::handlers::metrics::handle_enhanced_metrics))
+        .route("/api/system/metrics", get(crate::handlers::metrics::handle_system_metrics))
+        .route("/api/performance/metrics", get(crate::handlers::metrics::handle_performance_metrics))
+        .route("/api/system/alerts", get(crate::handlers::metrics::handle_resource_alerts))
+        .route("/api/health/history", get(crate::handlers::metrics::handle_health_history))
         .route("/api/items", get(handle_get_items).post(handle_post_item))
         .route("/api/items/search", get(handle_search_items))
         .route("/api/items/export", get(handle_export_items))
@@ -114,31 +121,6 @@ async fn handle_root(State(state): State<AppState>) -> impl IntoResponse {
         "websocket_enabled": state.websocket_manager.is_some(),
         "endpoints": endpoints
     })))
-}
-
-async fn handle_health(State(state): State<AppState>) -> impl IntoResponse {
-    let stats = state.item_service.get_stats().await.unwrap_or_default();
-    
-    let mut health_info = serde_json::json!({
-        "status": "healthy",
-        "timestamp": chrono::Utc::now().timestamp(),
-        "store_stats": stats,
-        "using_database": state.item_service.is_using_database()
-    });
-
-    if let Some(db_manager) = &state.db_manager {
-        match db_manager.health_check().await {
-            Ok(_) => {
-                health_info["database_status"] = serde_json::Value::String("healthy".to_string());
-            }
-            Err(e) => {
-                health_info["database_status"] = serde_json::Value::String("unhealthy".to_string());
-                health_info["database_error"] = serde_json::Value::String(e.to_string());
-            }
-        }
-    }
-    
-    Json(ApiResponse::success(health_info))
 }
 
 async fn handle_stats(State(state): State<AppState>) -> Result<impl IntoResponse> {
@@ -348,7 +330,6 @@ async fn handle_post_item(
         payload.metadata
     ).await?;
 
-    // Invalidate cache after creating item
     if let Some(cache_manager) = &state.cache_manager {
         cache_manager.invalidate_items_cache();
         cache_manager.invalidate_search_cache();
@@ -385,7 +366,6 @@ async fn handle_put_item(
         payload.metadata
     ).await?;
 
-    // Invalidate cache after updating item
     if let Some(cache_manager) = &state.cache_manager {
         cache_manager.invalidate_item_cache(id);
         cache_manager.invalidate_items_cache();
@@ -412,7 +392,6 @@ async fn handle_delete_item(
 
     state.item_service.delete_item(id).await?;
     
-    // Invalidate cache after deleting item
     if let Some(cache_manager) = &state.cache_manager {
         cache_manager.invalidate_item_cache(id);
         cache_manager.invalidate_items_cache();
@@ -450,7 +429,6 @@ async fn handle_patch_item(
 
     let item = state.item_service.patch_item(id, patch).await?;
     
-    // Invalidate cache after patching item
     if let Some(cache_manager) = &state.cache_manager {
         cache_manager.invalidate_item_cache(id);
         cache_manager.invalidate_items_cache();
@@ -490,7 +468,6 @@ async fn handle_form_submit(
         Some(metadata)
     ).await?;
 
-    // Invalidate cache after creating item via form
     if let Some(cache_manager) = &state.cache_manager {
         cache_manager.invalidate_items_cache();
         cache_manager.invalidate_search_cache();
@@ -1075,14 +1052,6 @@ async fn handle_dashboard() -> impl IntoResponse {
     </body>
     </html>
     "#)
-}
-
-async fn handle_metrics(State(state): State<AppState>) -> Result<impl IntoResponse> {
-    let items = state.item_service.get_items(None, None).await?;
-    let item_count = items.len();
-    let snapshot = state.metrics.get_snapshot(item_count);
-    
-    Ok(Json(ApiResponse::success(snapshot)))
 }
 
 async fn handle_export_items(
