@@ -33,3 +33,5 @@ lru = { workspace = true }
 async-trait = { workspace = true }
 regex = { workspace = true }
 sysinfo = { workspace = true }
+validator = { workspace = true }
+lazy_static = { workspace = true }
