@@ -168,7 +168,10 @@ pub fn create_app(state: AppState) -> Router {
             state.rate_limiter.clone(),
             middleware::rate_limit::rate_limit_middleware,
         ))
-
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            middleware::cache::cache_middleware,
+        ))
         .layer(axum_middleware::from_fn_with_state(
             state.clone(),
             metrics_middleware,
