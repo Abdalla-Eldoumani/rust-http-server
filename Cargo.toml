@@ -38,3 +38,4 @@ lru = "0.12"
 
 async-trait = "0.1"
 regex = "1.10"
+sysinfo = "0.30"
