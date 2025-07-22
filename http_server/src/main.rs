@@ -1,7 +1,7 @@
 //! Main entry point for the HTTP server binary
 
 use anyhow::Result;
-use core_lib::{create_app, run_server, AppState, AppConfig, DatabaseManager, ItemRepository, get_database_pool, run_migrations, WebSocketManager, JwtService, FileManager, FileRepository, FileManagerConfig};
+use core_lib::{create_app, run_server, AppState, AppConfig, DatabaseManager, ItemRepository, get_database_pool, run_migrations, WebSocketManager, JwtService, FileManager, FileRepository, FileManagerConfig, CacheManager};
 use std::net::SocketAddr;
 use tracing::info;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -56,6 +56,10 @@ async fn main() -> Result<()> {
                 state = state.with_websocket(websocket_manager);
                 info!("WebSocket manager initialized");
                 
+                let cache_manager = CacheManager::default();
+                state = state.with_cache_manager(cache_manager);
+                info!("Cache manager initialized");
+                
                 state
             }
             Err(e) => {
@@ -65,6 +69,10 @@ async fn main() -> Result<()> {
                 let websocket_manager = WebSocketManager::new(None);
                 state = state.with_websocket(websocket_manager);
                 info!("WebSocket manager initialized (no auth)");
+                
+                let cache_manager = CacheManager::default();
+                state = state.with_cache_manager(cache_manager);
+                info!("Cache manager initialized");
                 
                 state
             }
@@ -76,6 +84,10 @@ async fn main() -> Result<()> {
         let websocket_manager = WebSocketManager::new(None);
         state = state.with_websocket(websocket_manager);
         info!("WebSocket manager initialized (no auth)");
+        
+        let cache_manager = CacheManager::default();
+        state = state.with_cache_manager(cache_manager);
+        info!("Cache manager initialized");
         
         state
     };
