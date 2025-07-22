@@ -2,6 +2,8 @@ use crate::auth::{
     models::{CreateUserRequest, LoginRequest, LoginResponse, RefreshTokenResponse, UserResponse}
 };
 use crate::error::AppError;
+use crate::models::auth::{RegisterRequest, LoginRequest as ValidatedLoginRequest, RefreshTokenRequest as ValidatedRefreshTokenRequest};
+use crate::validation::{ContextValidatable, middleware::extract_validation_context};
 use crate::AppState;
 use axum::{
     extract::{Path, State},
@@ -24,34 +26,94 @@ pub struct MessageResponse {
 
 pub async fn register_user(
     State(state): State<AppState>,
-    Json(request): Json<CreateUserRequest>,
+    headers: axum::http::HeaderMap,
+    connect_info: Option<axum::extract::ConnectInfo<std::net::SocketAddr>>,
+    Json(request): Json<RegisterRequest>,
 ) -> Result<(StatusCode, Json<UserResponse>), AppError> {
+    
+    let addr = connect_info.map(|ci| ci.0).unwrap_or_else(|| {
+        std::net::SocketAddr::from(([127, 0, 0, 1], 8080))
+    });
+    let context = extract_validation_context(&headers, &addr, None, None);
+    
+    let validation_result = request.validate_with_context(&context);
+    if !validation_result.is_valid {
+        return Err(AppError::Validation(format!(
+            "Registration validation failed: {}",
+            serde_json::to_string(&validation_result.errors).unwrap_or_default()
+        )));
+    }
+    
     let auth_service = state
         .auth_service
         .as_ref()
         .ok_or_else(|| AppError::InternalServerError)?;
     
-    let user_response = auth_service.register_user(request).await?;
+    let create_request = CreateUserRequest {
+        username: request.username,
+        email: request.email,
+        password: request.password,
+        role: None,
+    };
+    
+    let user_response = auth_service.register_user(create_request).await?;
     Ok((StatusCode::CREATED, Json(user_response)))
 }
 
 pub async fn login_user(
     State(state): State<AppState>,
-    Json(request): Json<LoginRequest>,
+    headers: axum::http::HeaderMap,
+    connect_info: Option<axum::extract::ConnectInfo<std::net::SocketAddr>>,
+    Json(request): Json<ValidatedLoginRequest>,
 ) -> Result<Json<LoginResponse>, AppError> {
+
+    let addr = connect_info.map(|ci| ci.0).unwrap_or_else(|| {
+        std::net::SocketAddr::from(([127, 0, 0, 1], 8080))
+    });
+    let context = extract_validation_context(&headers, &addr, None, None);
+    
+    let validation_result = request.validate_with_context(&context);
+    if !validation_result.is_valid {
+        return Err(AppError::Validation(format!(
+            "Login validation failed: {}",
+            serde_json::to_string(&validation_result.errors).unwrap_or_default()
+        )));
+    }
+    
     let auth_service = state
         .auth_service
         .as_ref()
         .ok_or_else(|| AppError::InternalServerError)?;
     
-    let login_response = auth_service.login(request).await?;
+    let login_req = LoginRequest {
+        username: request.username_or_email,
+        password: request.password,
+    };
+    
+    let login_response = auth_service.login(login_req).await?;
     Ok(Json(login_response))
 }
 
 pub async fn refresh_token(
     State(state): State<AppState>,
-    Json(request): Json<RefreshTokenRequest>,
+    headers: axum::http::HeaderMap,
+    connect_info: Option<axum::extract::ConnectInfo<std::net::SocketAddr>>,
+    Json(request): Json<ValidatedRefreshTokenRequest>,
 ) -> Result<Json<RefreshTokenResponse>, AppError> {
+
+    let addr = connect_info.map(|ci| ci.0).unwrap_or_else(|| {
+        std::net::SocketAddr::from(([127, 0, 0, 1], 8080))
+    });
+    let context = extract_validation_context(&headers, &addr, None, None);
+    
+    let validation_result = request.validate_with_context(&context);
+    if !validation_result.is_valid {
+        return Err(AppError::Validation(format!(
+            "Refresh token validation failed: {}",
+            serde_json::to_string(&validation_result.errors).unwrap_or_default()
+        )));
+    }
+    
     let auth_service = state
         .auth_service
         .as_ref()
@@ -151,14 +213,17 @@ mod tests {
         let request_body = json!({
             "username": "testuser",
             "email": "test@example.com",
-            "password": "password123",
-            "role": "user"
+            "password": "StrongPass123!",
+            "password_confirmation": "StrongPass123!",
+            "first_name": "Test",
+            "last_name": "User"
         });
 
         let request = Request::builder()
             .method(Method::POST)
             .uri("/register")
             .header("content-type", "application/json")
+            .header("user-agent", "test-client")
             .body(Body::from(request_body.to_string()))
             .unwrap();
 
@@ -174,14 +239,17 @@ mod tests {
         let register_body = json!({
             "username": "testuser",
             "email": "test@example.com",
-            "password": "password123",
-            "role": "user"
+            "password": "StrongPass123!",
+            "password_confirmation": "StrongPass123!",
+            "first_name": "Test",
+            "last_name": "User"
         });
 
         let register_request = Request::builder()
             .method(Method::POST)
             .uri("/register")
             .header("content-type", "application/json")
+            .header("user-agent", "test-client")
             .body(Body::from(register_body.to_string()))
             .unwrap();
 
@@ -189,14 +257,15 @@ mod tests {
         let _register_response = app_clone.oneshot(register_request).await.unwrap();
 
         let login_body = json!({
-            "username": "testuser",
-            "password": "password123"
+            "username_or_email": "testuser",
+            "password": "StrongPass123!"
         });
 
         let login_request = Request::builder()
             .method(Method::POST)
             .uri("/login")
             .header("content-type", "application/json")
+            .header("user-agent", "test-client")
             .body(Body::from(login_body.to_string()))
             .unwrap();
 
@@ -210,7 +279,7 @@ mod tests {
         let app = create_auth_routes().with_state(app_state);
 
         let login_body = json!({
-            "username": "nonexistent",
+            "username_or_email": "nonexistent",
             "password": "wrongpassword"
         });
 
@@ -218,6 +287,7 @@ mod tests {
             .method(Method::POST)
             .uri("/login")
             .header("content-type", "application/json")
+            .header("user-agent", "test-client")
             .body(Body::from(login_body.to_string()))
             .unwrap();
 
@@ -233,14 +303,17 @@ mod tests {
         let request_body = json!({
             "username": "testuser",
             "email": "invalid-email",
-            "password": "password123",
-            "role": "user"
+            "password": "StrongPass123!",
+            "password_confirmation": "StrongPass123!",
+            "first_name": "Test",
+            "last_name": "User"
         });
 
         let request = Request::builder()
             .method(Method::POST)
             .uri("/register")
             .header("content-type", "application/json")
+            .header("user-agent", "test-client")
             .body(Body::from(request_body.to_string()))
             .unwrap();
 
