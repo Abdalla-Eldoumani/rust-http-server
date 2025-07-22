@@ -7,9 +7,11 @@ pub mod database;
 pub mod error;
 pub mod files;
 pub mod handlers;
+pub mod health;
 pub mod jobs;
 pub mod middleware;
 pub mod models;
+pub mod monitoring;
 pub mod search;
 pub mod services;
 pub mod store;
@@ -21,7 +23,9 @@ pub use cache::{CacheManager, CacheStats};
 pub use config::AppConfig;
 pub use database::{DatabaseManager, get_database_pool, run_migrations, ItemRepository, MigrationService};
 pub use files::{FileManager, FileRepository, FileValidator, FileManagerConfig};
+pub use health::{HealthChecker, HealthStatus, HealthCheck, ComponentHealth, SystemHealth};
 pub use jobs::{JobQueue, JobRepository, JobRepositoryTrait, Job, JobRequest, JobResponse, JobStatus, JobType, JobPriority, JobListParams, JobListResponse};
+pub use monitoring::{SystemMonitor, SystemMetrics, ResourceUsage, DiskUsage};
 pub use search::{SearchEngine, SearchQuery, SearchResult, SearchFilters, SearchCache};
 pub use services::ItemService;
 pub use error::{AppError, Result};
@@ -62,6 +66,8 @@ pub struct AppState {
     pub file_manager: Option<FileManager>,
     pub job_queue: Option<JobQueue>,
     pub cache_manager: Option<CacheManager>,
+    pub health_checker: Option<std::sync::Arc<HealthChecker>>,
+    pub system_monitor: Option<std::sync::Arc<SystemMonitor>>,
 }
 
 impl Default for AppState {
@@ -83,6 +89,8 @@ impl Default for AppState {
             file_manager: None,
             job_queue: None,
             cache_manager: None,
+            health_checker: None,
+            system_monitor: None,
         }
     }
 }
@@ -108,6 +116,8 @@ impl AppState {
             file_manager: None,
             job_queue: None,
             cache_manager: None,
+            health_checker: None,
+            system_monitor: None,
         }
     }
 
@@ -133,6 +143,18 @@ impl AppState {
 
     pub fn with_cache_manager(mut self, cache_manager: CacheManager) -> Self {
         self.cache_manager = Some(cache_manager);
+        self
+    }
+
+    pub fn with_health_checker(mut self) -> Self {
+        let health_checker = HealthChecker::from_app_state(&self);
+        self.health_checker = Some(std::sync::Arc::new(health_checker));
+        self
+    }
+
+    pub fn with_system_monitor(mut self) -> Self {
+        let system_monitor = SystemMonitor::new();
+        self.system_monitor = Some(std::sync::Arc::new(system_monitor));
         self
     }
 
