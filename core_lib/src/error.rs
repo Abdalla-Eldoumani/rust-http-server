@@ -45,6 +45,15 @@ pub enum AppError {
     #[error("JSON error: {0}")]
     JsonError(#[from] serde_json::Error),
 
+    #[error("Validation error: {0}")]
+    Validation(String),
+
+    #[error("File validation error: {0}")]
+    FileValidation(String),
+
+    #[error("Security validation error: {0}")]
+    SecurityValidation(String),
+
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
@@ -79,6 +88,12 @@ impl IntoResponse for AppError {
             AppError::JsonError(err) => {
                 tracing::error!("JSON error: {:?}", err);
                 (StatusCode::BAD_REQUEST, "Invalid JSON data".to_string())
+            }
+            AppError::Validation(msg) => (StatusCode::BAD_REQUEST, msg),
+            AppError::FileValidation(msg) => (StatusCode::BAD_REQUEST, msg),
+            AppError::SecurityValidation(msg) => {
+                tracing::warn!("Security validation failed: {}", msg);
+                (StatusCode::BAD_REQUEST, "Request failed security validation".to_string())
             }
             AppError::Other(err) => {
                 tracing::error!("Unexpected error: {:?}", err);
