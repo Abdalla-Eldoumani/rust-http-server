@@ -19,14 +19,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_jwt_service_creation() {
-        env::set_var("JWT_SECRET", "test-secret-key-that-is-long-enough-for-testing");
+        env::set_var("JWT_SECRET", "cccb02dcfa1318ea49f54c76211210b822f8542d");
         let jwt_service = JwtService::new();
         assert!(jwt_service.is_ok());
     }
 
     #[tokio::test]
     async fn test_jwt_token_generation_and_validation() {
-        env::set_var("JWT_SECRET", "test-secret-key-that-is-long-enough-for-testing");
+        env::set_var("JWT_SECRET", "d85735aadb9a3e089ae7a06f417ed32080376f24");
         let jwt_service = JwtService::new().unwrap();
 
         let user = User {
@@ -78,7 +78,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_service_registration() {
-        env::set_var("JWT_SECRET", "test-secret-key-that-is-long-enough-for-testing");
+        env::set_var("JWT_SECRET", "fcb2e0cf59920daee6d502b120f27c5a7cb86385fcb2e0cf59920daee6d502b120f27c5a7cb86385");
         let pool = setup_test_db().await;
         let user_repo = UserRepository::new(pool);
         let jwt_service = JwtService::new().unwrap();
@@ -99,7 +99,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_service_login() {
-        env::set_var("JWT_SECRET", "test-secret-key-that-is-long-enough-for-testing");
+        env::set_var("JWT_SECRET", "fcb2e0cf59920daee6d502b120f27c5a7cb86385");
         let pool = setup_test_db().await;
         let user_repo = UserRepository::new(pool);
         let jwt_service = JwtService::new().unwrap();
@@ -127,7 +127,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_service_invalid_login() {
-        env::set_var("JWT_SECRET", "test-secret-key-that-is-long-enough-for-testing");
+        env::set_var("JWT_SECRET", "1a9e1a1d8f3e9613a555adea1881bbd11a9e1a1d8f3e9613a555adea1881bbd1");
         let pool = setup_test_db().await;
         let user_repo = UserRepository::new(pool);
         let jwt_service = JwtService::new().unwrap();
