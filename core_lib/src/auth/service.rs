@@ -176,21 +176,8 @@ impl AuthService {
             return Err(AppError::BadRequest("Email cannot be empty".to_string()));
         }
 
-        if !self.is_valid_email(&request.email) {
-            return Err(AppError::BadRequest("Invalid email format".to_string()));
-        }
-
-        if request.password.len() < 8 {
-            return Err(AppError::BadRequest(
-                "Password must be at least 8 characters long".to_string(),
-            ));
-        }
-
-        if request.password.len() > 128 {
-            return Err(AppError::BadRequest(
-                "Password cannot be longer than 128 characters".to_string(),
-            ));
-        }
+        self.validate_email_format(&request.email)?;
+        self.validate_password_strength(&request.password)?;
 
         Ok(())
     }
@@ -207,8 +194,124 @@ impl AuthService {
         Ok(())
     }
 
-    fn is_valid_email(&self, email: &str) -> bool {
+    fn validate_password_strength(&self, password: &str) -> Result<(), AppError> {
+        if password.len() < 8 {
+            return Err(AppError::BadRequest(
+                "Password must be at least 8 characters long".to_string(),
+            ));
+        }
+
+        if password.len() > 128 {
+            return Err(AppError::BadRequest(
+                "Password cannot be longer than 128 characters".to_string(),
+            ));
+        }
+
+        if password.trim().is_empty() {
+            return Err(AppError::BadRequest("Password cannot be empty".to_string()));
+        }
+
+        if !password.chars().any(|c| c.is_ascii_digit()) {
+            return Err(AppError::BadRequest(
+                "Password must contain at least one digit".to_string(),
+            ));
+        }
+
+        if !password.chars().any(|c| c.is_ascii_uppercase()) {
+            return Err(AppError::BadRequest(
+                "Password must contain at least one uppercase letter".to_string(),
+            ));
+        }
+
+        if !password.chars().any(|c| c.is_ascii_lowercase()) {
+            return Err(AppError::BadRequest(
+                "Password must contain at least one lowercase letter".to_string(),
+            ));
+        }
+
+        if !password.chars().any(|c| "!@#$%^&*()_+-=[]{}|;:,.<>?".contains(c)) {
+            return Err(AppError::BadRequest(
+                "Password must contain at least one special character (!@#$%^&*()_+-=[]{}|;:,.<>?)".to_string(),
+            ));
+        }
+
+        let weak_passwords = [
+            "password", "123456", "12345678", "qwerty", "abc123", 
+            "password123", "admin", "letmein", "welcome", "monkey"
+        ];
+        
+        let password_lower = password.to_lowercase();
+        if weak_passwords.iter().any(|&weak| password_lower.contains(weak)) {
+            return Err(AppError::BadRequest(
+                "Password contains common weak patterns and is not allowed".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn validate_email_format(&self, email: &str) -> Result<(), AppError> {
+        if email.trim().is_empty() {
+            return Err(AppError::BadRequest("Email cannot be empty".to_string()));
+        }
+
+        if email.len() > 254 {
+            return Err(AppError::BadRequest("Email address too long".to_string()));
+        }
+
+        if !email.contains('@') {
+            return Err(AppError::BadRequest("Email must contain @ symbol".to_string()));
+        }
+
+        let parts: Vec<&str> = email.split('@').collect();
+        if parts.len() != 2 {
+            return Err(AppError::BadRequest("Email must contain exactly one @ symbol".to_string()));
+        }
+
+        let local_part = parts[0];
+        let domain_part = parts[1];
+
+        if local_part.is_empty() {
+            return Err(AppError::BadRequest("Email local part cannot be empty".to_string()));
+        }
+
+        if local_part.len() > 64 {
+            return Err(AppError::BadRequest("Email local part too long".to_string()));
+        }
+
+        if local_part.starts_with('.') || local_part.ends_with('.') {
+            return Err(AppError::BadRequest("Email local part cannot start or end with a dot".to_string()));
+        }
+
+        if local_part.contains("..") {
+            return Err(AppError::BadRequest("Email local part cannot contain consecutive dots".to_string()));
+        }
+
+        if domain_part.is_empty() {
+            return Err(AppError::BadRequest("Email domain cannot be empty".to_string()));
+        }
+
+        if !domain_part.contains('.') {
+            return Err(AppError::BadRequest("Email domain must contain at least one dot".to_string()));
+        }
+
+        if domain_part.starts_with('.') || domain_part.ends_with('.') {
+            return Err(AppError::BadRequest("Email domain cannot start or end with a dot".to_string()));
+        }
+
+        if domain_part.starts_with('-') || domain_part.ends_with('-') {
+            return Err(AppError::BadRequest("Email domain cannot start or end with a hyphen".to_string()));
+        }
+
         let email_regex = regex::Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
-        email_regex.is_match(email)
+        if !email_regex.is_match(email) {
+            return Err(AppError::BadRequest("Invalid email format".to_string()));
+        }
+
+        Ok(())
+    }
+
+    fn is_valid_email(&self, email: &str) -> bool {
+        self.validate_email_format(email).is_ok()
     }
 }
