@@ -1,7 +1,42 @@
 //! CORS (Cross-Origin Resource Sharing) middleware configuration
 
+use crate::config::CorsConfig;
 use tower_http::cors::{Any, CorsLayer as TowerCorsLayer};
 use axum::http::{HeaderValue, Method, HeaderName};
+
+pub fn cors_layer_from_config(config: &CorsConfig) -> TowerCorsLayer {
+    if config.enable_permissive_mode {
+        return cors_layer_permissive();
+    }
+
+    let origins: Vec<HeaderValue> = config.allowed_origins
+        .iter()
+        .filter_map(|origin| origin.parse().ok())
+        .collect();
+
+    let methods: Vec<Method> = config.allowed_methods
+        .iter()
+        .filter_map(|method| method.parse().ok())
+        .collect();
+
+    let allowed_headers: Vec<HeaderName> = config.allowed_headers
+        .iter()
+        .filter_map(|header| header.parse().ok())
+        .collect();
+
+    let exposed_headers: Vec<HeaderName> = config.exposed_headers
+        .iter()
+        .filter_map(|header| header.parse().ok())
+        .collect();
+
+    TowerCorsLayer::new()
+        .allow_origin(origins)
+        .allow_methods(methods)
+        .allow_headers(allowed_headers)
+        .expose_headers(exposed_headers)
+        .allow_credentials(config.allow_credentials)
+        .max_age(std::time::Duration::from_secs(config.max_age_seconds))
+}
 
 pub fn cors_layer() -> TowerCorsLayer {
     let allowed_origins = vec![
