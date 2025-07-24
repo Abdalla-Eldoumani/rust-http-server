@@ -65,6 +65,8 @@ impl ItemService {
         tags: Vec<String>,
         metadata: Option<serde_json::Value>,
     ) -> Result<Item> {
+        self.validate_item_input(&name)?;
+
         if self.use_database {
             if let Some(repo) = &self.item_repository {
                 let input = CreateItemInput {
@@ -89,6 +91,8 @@ impl ItemService {
         tags: Vec<String>,
         metadata: Option<serde_json::Value>,
     ) -> Result<Item> {
+        self.validate_item_input(&name)?;
+
         if self.use_database {
             if let Some(repo) = &self.item_repository {
                 let input = UpdateItemInput {
@@ -118,6 +122,7 @@ impl ItemService {
                 let mut metadata = current_item.metadata;
 
                 if let Some(new_name) = updates.get("name").and_then(|v| v.as_str()) {
+                    self.validate_item_input(new_name)?;
                     name = new_name.to_string();
                 }
 
@@ -196,6 +201,22 @@ impl ItemService {
 
     pub fn data_store(&self) -> &DataStore {
         &self.data_store
+    }
+
+    fn validate_item_input(&self, name: &str) -> Result<()> {
+        if name.trim().is_empty() {
+            return Err(AppError::Validation("Item name cannot be empty".to_string()));
+        }
+
+        if name.len() > 255 {
+            return Err(AppError::Validation("Item name too long (maximum 255 characters)".to_string()));
+        }
+
+        if name.contains('\0') {
+            return Err(AppError::Validation("Item name cannot contain null bytes".to_string()));
+        }
+
+        Ok(())
     }
 }
 
