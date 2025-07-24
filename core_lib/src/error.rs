@@ -54,6 +54,18 @@ pub enum AppError {
     #[error("Security validation error: {0}")]
     SecurityValidation(String),
 
+    #[error("Cache error: {0}")]
+    Cache(String),
+
+    #[error("Configuration error: {0}")]
+    Configuration(String),
+
+    #[error("Rate limit exceeded: {0}")]
+    RateLimit(String),
+
+    #[error("Middleware error: {0}")]
+    Middleware(String),
+
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
@@ -94,6 +106,19 @@ impl IntoResponse for AppError {
             AppError::SecurityValidation(msg) => {
                 tracing::warn!("Security validation failed: {}", msg);
                 (StatusCode::BAD_REQUEST, "Request failed security validation".to_string())
+            }
+            AppError::Cache(msg) => {
+                tracing::error!("Cache error: {}", msg);
+                (StatusCode::INTERNAL_SERVER_ERROR, "Cache error".to_string())
+            }
+            AppError::Configuration(msg) => {
+                tracing::error!("Configuration error: {}", msg);
+                (StatusCode::INTERNAL_SERVER_ERROR, "Configuration error".to_string())
+            }
+            AppError::RateLimit(msg) => (StatusCode::TOO_MANY_REQUESTS, msg),
+            AppError::Middleware(msg) => {
+                tracing::error!("Middleware error: {}", msg);
+                (StatusCode::INTERNAL_SERVER_ERROR, "Middleware error".to_string())
             }
             AppError::Other(err) => {
                 tracing::error!("Unexpected error: {:?}", err);
