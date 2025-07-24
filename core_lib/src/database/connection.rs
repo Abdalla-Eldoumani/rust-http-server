@@ -67,11 +67,12 @@ pub async fn get_database_pool(database_url: &str) -> Result<SqlitePool> {
     info!("Connecting to database: {}", database_url);
 
     let pool = SqlitePoolOptions::new()
-        .max_connections(20)
-        .min_connections(5)
+        .max_connections(10)
+        .min_connections(2)
         .acquire_timeout(Duration::from_secs(30))
-        .idle_timeout(Duration::from_secs(600))
+        .idle_timeout(Duration::from_secs(300))
         .max_lifetime(Duration::from_secs(1800))
+        .test_before_acquire(true)
         .connect(database_url)
         .await
         .map_err(|e| {
@@ -90,6 +91,21 @@ pub async fn get_database_pool(database_url: &str) -> Result<SqlitePool> {
         .map_err(AppError::from)?;
 
     sqlx::query("PRAGMA synchronous = NORMAL")
+        .execute(&pool)
+        .await
+        .map_err(AppError::from)?;
+
+    sqlx::query("PRAGMA busy_timeout = 30000")
+        .execute(&pool)
+        .await
+        .map_err(AppError::from)?;
+
+    sqlx::query("PRAGMA read_uncommitted = OFF")
+        .execute(&pool)
+        .await
+        .map_err(AppError::from)?;
+
+    sqlx::query("PRAGMA automatic_index = ON")
         .execute(&pool)
         .await
         .map_err(AppError::from)?;
