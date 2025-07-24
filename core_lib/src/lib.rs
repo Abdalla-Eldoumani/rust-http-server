@@ -31,7 +31,8 @@ pub use search::{SearchEngine, SearchQuery, SearchResult, SearchFilters, SearchC
 pub use services::ItemService;
 pub use error::{AppError, Result};
 pub use handlers::routes::create_routes;
-pub use middleware::cors::{cors_layer, cors_layer_permissive};
+
+pub use middleware::cors::{cors_layer, cors_layer_permissive, cors_layer_from_config};
 pub use middleware::auth::{AuthUser, jwt_auth_middleware, optional_jwt_auth_middleware, require_admin, require_self_or_admin};
 pub use middleware::cache::cache_middleware;
 pub use store::DataStore;
@@ -85,7 +86,7 @@ impl Default for AppState {
             item_service,
             search_engine: None,
             metrics: MetricsCollector::new(),
-            rate_limiter: RateLimiter::new(100, 60),
+            rate_limiter: RateLimiter::new(crate::config::RateLimitConfig::default()),
             auth_service: None,
             websocket_manager: None,
             file_manager: None,
@@ -112,7 +113,7 @@ impl AppState {
             item_service,
             search_engine: Some(search_engine),
             metrics: MetricsCollector::new(),
-            rate_limiter: RateLimiter::new(100, 60),
+            rate_limiter: RateLimiter::new(crate::config::RateLimitConfig::default()),
             auth_service: None,
             websocket_manager: None,
             file_manager: None,
@@ -121,6 +122,11 @@ impl AppState {
             health_checker: None,
             system_monitor: None,
         }
+    }
+
+    pub fn with_rate_limiter(mut self, rate_limiter: RateLimiter) -> Self {
+        self.rate_limiter = rate_limiter;
+        self
     }
 
     pub fn with_auth(mut self, auth_service: AuthService) -> Self {
@@ -181,28 +187,43 @@ impl AppState {
 }
 
 pub fn create_app(state: AppState) -> Router {
-    Router::new()
-        .merge(create_routes())
-        .layer(cors_layer_permissive())
-        .layer(axum_middleware::from_fn_with_state(
-            state.clone(),
-            middleware::auth::optional_jwt_auth_middleware,
-        ))
-        .layer(axum_middleware::from_fn_with_state(
+    create_app_with_config(state, AppConfig::default())
+}
+
+pub fn create_app_with_config(state: AppState, config: AppConfig) -> Router {
+    let mut router = Router::new().merge(create_routes());
+
+    router = router.layer(middleware::cors::cors_layer_from_config(&config.cors));
+
+    router = router.layer(axum_middleware::from_fn_with_state(
+        state.clone(),
+        middleware::auth::optional_jwt_auth_middleware,
+    ));
+
+    router = router.layer(axum_middleware::from_fn_with_state(
+        state.clone(),
+        middleware::cache::cache_middleware,
+    ));
+
+    if config.rate_limit.enable {
+        router = router.layer(axum_middleware::from_fn_with_state(
             state.rate_limiter.clone(),
             middleware::rate_limit::rate_limit_middleware,
-        ))
-        .layer(axum_middleware::from_fn_with_state(
-            state.clone(),
-            middleware::cache::cache_middleware,
-        ))
-        .layer(axum_middleware::from_fn_with_state(
-            state.clone(),
-            metrics_middleware,
-        ))
-        .layer(axum_middleware::from_fn(validation::middleware::validation_middleware))
-        .layer(axum_middleware::from_fn(middleware::logging::log_request))
-        .with_state(state)
+        ));
+    }
+
+    router = router.layer(axum_middleware::from_fn_with_state(
+        state.clone(),
+        metrics_middleware,
+    ));
+
+    router = router.layer(axum_middleware::from_fn(validation::middleware::validation_middleware));
+
+    router = router.layer(axum_middleware::from_fn(
+        middleware::logging::log_request_with_config(config.logging)
+    ));
+
+    router.with_state(state)
 }
 
 async fn metrics_middleware(
