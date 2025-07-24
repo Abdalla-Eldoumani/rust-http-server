@@ -60,7 +60,7 @@ mod tests {
         let create_request = CreateUserRequest {
             username: "testuser".to_string(),
             email: "test@example.com".to_string(),
-            password: "password123".to_string(),
+            password: "StrongTest123!".to_string(),
             role: Some(UserRole::User),
         };
 
@@ -87,7 +87,7 @@ mod tests {
         let create_request = CreateUserRequest {
             username: "testuser".to_string(),
             email: "test@example.com".to_string(),
-            password: "password123".to_string(),
+            password: "StrongTest123!".to_string(),
             role: Some(UserRole::User),
         };
 
@@ -108,14 +108,14 @@ mod tests {
         let create_request = CreateUserRequest {
             username: "testuser".to_string(),
             email: "test@example.com".to_string(),
-            password: "password123".to_string(),
+            password: "StrongTest123!".to_string(),
             role: Some(UserRole::User),
         };
         auth_service.register_user(create_request).await.unwrap();
 
         let login_request = LoginRequest {
             username: "testuser".to_string(),
-            password: "password123".to_string(),
+            password: "StrongTest123!".to_string(),
         };
 
         let login_response = auth_service.login(login_request).await.unwrap();
