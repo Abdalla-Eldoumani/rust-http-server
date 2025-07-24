@@ -129,13 +129,27 @@ impl SecurityValidator {
     pub fn validate_headers(headers: &std::collections::HashMap<String, String>) -> ValidationResult {
         let mut result = ValidationResult::success();
 
+        let skip_headers = [
+            "cookie", "set-cookie", "authorization", "accept", "accept-encoding", 
+            "accept-language", "cache-control", "connection", "host", "pragma",
+            "upgrade-insecure-requests", "sec-fetch-site", "sec-fetch-mode",
+            "sec-fetch-user", "sec-fetch-dest", "sec-ch-ua", "sec-ch-ua-mobile",
+            "sec-ch-ua-platform", "dnt", "upgrade", "origin", "referer", "if-none-match",
+            "if-modified-since", "content-length", "content-type"
+        ];
+
         for (name, value) in headers {
             let name_lower = name.to_lowercase();
+            
+            if skip_headers.contains(&name_lower.as_str()) {
+                continue;
+            }
             
             if name_lower == "user-agent" {
                 if let Err(err) = Self::validate_user_agent(value) {
                     result.add_error("user-agent", &err.to_string());
                 }
+                continue;
             }
             
             if let Err(_) = Self::validate_sql_injection(value) {
@@ -274,8 +288,15 @@ impl SecurityValidator {
             }
         }
 
-        let headers_result = Self::validate_headers(&context.headers);
-        result.merge(headers_result);
+        let is_browser_request = context.user_agent
+            .as_ref()
+            .map(|ua| ua.contains("Mozilla") || ua.contains("Chrome") || ua.contains("Safari") || ua.contains("Firefox"))
+            .unwrap_or(false);
+
+        if !is_browser_request {
+            let headers_result = Self::validate_headers(&context.headers);
+            result.merge(headers_result);
+        }
 
         if context.request_path.len() > 2048 {
             result.add_error("request_path", "Request path is too long");
@@ -369,5 +390,43 @@ mod tests {
         assert!(IpSecurityValidator::is_private_ip("10.0.0.1"));
         assert!(IpSecurityValidator::is_private_ip("127.0.0.1"));
         assert!(!IpSecurityValidator::is_private_ip("8.8.8.8"));
+    }
+
+    #[test]
+    fn test_browser_request_security_validation() {
+        let mut headers = std::collections::HashMap::new();
+        headers.insert("cookie".to_string(), "session=abc123; onclick=something".to_string());
+        headers.insert("user-agent".to_string(), "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36".to_string());
+        
+        let context = SecurityContext {
+            ip_address: Some("127.0.0.1".to_string()),
+            user_agent: Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36".to_string()),
+            referer: None,
+            request_path: "/".to_string(),
+            request_method: "GET".to_string(),
+            headers,
+        };
+
+        let result = SecurityValidator::validate_request_security(&context);
+        assert!(result.is_valid, "Browser requests should pass security validation");
+    }
+
+    #[test]
+    fn test_non_browser_request_security_validation() {
+        let mut headers = std::collections::HashMap::new();
+        headers.insert("x-custom-header".to_string(), "'; DROP TABLE users; --".to_string());
+        headers.insert("user-agent".to_string(), "curl/7.68.0".to_string());
+        
+        let context = SecurityContext {
+            ip_address: Some("127.0.0.1".to_string()),
+            user_agent: Some("curl/7.68.0".to_string()),
+            referer: None,
+            request_path: "/".to_string(),
+            request_method: "GET".to_string(),
+            headers,
+        };
+
+        let result = SecurityValidator::validate_request_security(&context);
+        assert!(!result.is_valid, "Non-browser requests with suspicious headers should fail validation");
     }
 }
