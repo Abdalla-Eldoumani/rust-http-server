@@ -1,7 +1,7 @@
 //! Main entry point for the HTTP server binary
 
 use anyhow::Result;
-use core_lib::{create_app, run_server, AppState, AppConfig, DatabaseManager, ItemRepository, get_database_pool, run_migrations, WebSocketManager, JwtService, FileManager, FileRepository, FileManagerConfig, CacheManager};
+use core_lib::{create_app_with_config, run_server, AppState, AppConfig, DatabaseManager, ItemRepository, get_database_pool, run_migrations, WebSocketManager, JwtService, FileManager, FileRepository, FileManagerConfig, CacheManager};
 use std::net::SocketAddr;
 use tracing::info;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -26,13 +26,19 @@ async fn main() -> Result<()> {
     info!("Initializing Rust HTTP Server");
     info!("Environment: {}", std::env::var("RUST_ENV").unwrap_or_else(|_| "development".to_string()));
 
+    let rate_limiter = if config.rate_limit.enable {
+        core_lib::middleware::rate_limit::RateLimiter::new(config.rate_limit.clone())
+    } else {
+        core_lib::middleware::rate_limit::RateLimiter::new(core_lib::config::RateLimitConfig::default())
+    };
+
     let state = if config.database.url != "sqlite::memory:" && !config.database.url.is_empty() {
         info!("Initializing database connection: {}", config.database.url);
         
         match initialize_database(&config.database.url).await {
             Ok((db_manager, item_repository, file_manager)) => {
                 info!("Database initialized successfully");
-                let mut state = AppState::with_database(db_manager, item_repository);
+                let mut state = AppState::with_database(db_manager, item_repository).with_rate_limiter(rate_limiter.clone());
                 
                 if let Err(e) = state.migrate_to_database_if_needed().await {
                     tracing::warn!("Failed to migrate data to database: {}", e);
@@ -70,7 +76,7 @@ async fn main() -> Result<()> {
             }
             Err(e) => {
                 tracing::warn!("Failed to initialize database, falling back to in-memory store: {}", e);
-                let mut state = AppState::default();
+                let mut state = AppState::default().with_rate_limiter(rate_limiter.clone());
                 
                 let websocket_manager = WebSocketManager::new(None);
                 state = state.with_websocket(websocket_manager);
@@ -91,7 +97,7 @@ async fn main() -> Result<()> {
         }
     } else {
         info!("Using in-memory data store");
-        let mut state = AppState::default();
+        let mut state = AppState::default().with_rate_limiter(rate_limiter.clone());
         
         let websocket_manager = WebSocketManager::new(None);
         state = state.with_websocket(websocket_manager);
@@ -139,7 +145,23 @@ async fn main() -> Result<()> {
         info!("Started metrics broadcasting task (every 5 seconds)");
     }
 
-    let app = create_app(state);
+    if config.rate_limit.enable {
+        let cleanup_interval = config.rate_limit.cleanup_interval_seconds;
+        let rate_limiter_cleanup = rate_limiter.clone();
+        
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(cleanup_interval));
+            loop {
+                interval.tick().await;
+                rate_limiter_cleanup.cleanup_expired();
+                tracing::debug!("Rate limiter cleanup completed");
+            }
+        });
+        
+        info!("Started rate limiter cleanup task (every {} seconds)", cleanup_interval);
+    }
+
+    let app = create_app_with_config(state, config.clone());
 
     run_server(app, addr).await?;
 
