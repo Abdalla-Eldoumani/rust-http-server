@@ -145,37 +145,14 @@ impl ItemRepository {
 
         Ok(items)
     }
-}
 
-#[derive(Debug, Clone)]
-pub struct CreateItemInput {
-    pub name: String,
-    pub description: Option<String>,
-    pub tags: Vec<String>,
-    pub metadata: Option<serde_json::Value>,
-    pub created_by: Option<i64>,
-}
-
-#[derive(Debug, Clone)]
-pub struct UpdateItemInput {
-    pub name: String,
-    pub description: Option<String>,
-    pub tags: Vec<String>,
-    pub metadata: Option<serde_json::Value>,
-}
-
-#[async_trait]
-impl Repository<Item> for ItemRepository {
-    type Id = i64;
-    type CreateInput = CreateItemInput;
-    type UpdateInput = UpdateItemInput;
-
-    async fn create(&self, input: Self::CreateInput) -> Result<Item> {
+    async fn create_item_internal(&self, input: &CreateItemInput) -> Result<Item> {
         let now = Utc::now();
         let tags_json = serde_json::to_string(&input.tags)
             .unwrap_or_else(|_| "[]".to_string());
         let metadata_json = input.metadata
-            .map(|m| serde_json::to_string(&m).unwrap_or_else(|_| "{}".to_string()))
+            .as_ref()
+            .map(|m| serde_json::to_string(m).unwrap_or_else(|_| "{}".to_string()))
             .unwrap_or_else(|| "{}".to_string());
 
         let row = sqlx::query(r#"
@@ -206,6 +183,34 @@ impl Repository<Item> for ItemRepository {
         };
 
         Ok(db_item.to_api_item())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateItemInput {
+    pub name: String,
+    pub description: Option<String>,
+    pub tags: Vec<String>,
+    pub metadata: Option<serde_json::Value>,
+    pub created_by: Option<i64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct UpdateItemInput {
+    pub name: String,
+    pub description: Option<String>,
+    pub tags: Vec<String>,
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[async_trait]
+impl Repository<Item> for ItemRepository {
+    type Id = i64;
+    type CreateInput = CreateItemInput;
+    type UpdateInput = UpdateItemInput;
+
+    async fn create(&self, input: Self::CreateInput) -> Result<Item> {
+        self.create_item_internal(&input).await
     }
 
     async fn get_by_id(&self, id: Self::Id) -> Result<Option<Item>> {
