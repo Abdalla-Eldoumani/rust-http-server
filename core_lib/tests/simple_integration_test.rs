@@ -56,8 +56,10 @@ async fn test_item_repository_operations() {
     assert_eq!(created_item.name, "Test Item");
     assert!(created_item.id > 0);
     
+    let _count = item_repository.count().await.unwrap();
+    
     let retrieved_item = item_repository.get_by_id(created_item.id as i64).await.unwrap();
-    assert!(retrieved_item.is_some());
+    assert!(retrieved_item.is_some(), "Failed to retrieve item with id: {}", created_item.id);
     let retrieved_item = retrieved_item.unwrap();
     assert_eq!(retrieved_item.name, "Test Item");
     
@@ -98,7 +100,7 @@ async fn test_user_repository_operations() {
     let create_request = core_lib::auth::models::CreateUserRequest {
         username: "testuser".to_string(),
         email: "test@example.com".to_string(),
-        password: "password123".to_string(),
+        password: "StrongPass123!".to_string(),
         role: Some(core_lib::auth::models::UserRole::User),
     };
     
@@ -151,7 +153,7 @@ async fn test_auth_service_integration() {
     let create_request = core_lib::auth::models::CreateUserRequest {
         username: "authtest".to_string(),
         email: "authtest@example.com".to_string(),
-        password: "password123".to_string(),
+        password: "StrongPass123!".to_string(),
         role: Some(core_lib::auth::models::UserRole::User),
     };
     
@@ -160,7 +162,7 @@ async fn test_auth_service_integration() {
     
     let login_request = core_lib::auth::models::LoginRequest {
         username: "authtest".to_string(),
-        password: "password123".to_string(),
+        password: "StrongPass123!".to_string(),
     };
     
     let login_response = auth_service.login(login_request).await.unwrap();
