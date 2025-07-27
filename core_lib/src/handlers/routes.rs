@@ -11,11 +11,12 @@ use crate::{
     AppState,
 };
 use axum::{
-    extract::{Form, Path, Query, State},
+    extract::{Form, Path, Query, State, Request, FromRequest},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Html},
     routing::get,
     Json, Router,
+    body::Body,
 };
 use serde::{Deserialize};
 use std::collections::HashMap;
@@ -42,6 +43,30 @@ pub fn create_routes() -> Router<AppState> {
             "/api/items/:id",
             get(handle_get_item)
                 .put(handle_put_item)
+                .delete(handle_delete_item)
+                .patch(handle_patch_item),
+        )
+
+        // API v1
+        .route("/api/v1/items", get(handle_get_items).post(handle_post_item))
+        .route("/api/v1/items/search", get(handle_search_items))
+        .route("/api/v1/items/export", get(handle_export_items))
+        .route(
+            "/api/v1/items/:id",
+            get(handle_get_item)
+                .put(handle_put_item)
+                .delete(handle_delete_item)
+                .patch(handle_patch_item),
+        )
+
+        // API v2
+        .route("/api/v2/items", get(handle_get_items_v2).post(handle_post_item_v2))
+        .route("/api/v2/items/search", get(handle_search_items))
+        .route("/api/v2/items/export", get(handle_export_items))
+        .route(
+            "/api/v2/items/:id",
+            get(handle_get_item_v2)
+                .put(handle_put_item_v2)
                 .delete(handle_delete_item)
                 .patch(handle_patch_item),
         )
@@ -539,8 +564,31 @@ async fn handle_form_submit(
     State(state): State<AppState>,
     headers: HeaderMap,
     connect_info: Option<axum::extract::ConnectInfo<std::net::SocketAddr>>,
-    Form(form): Form<FormPayload>
+    request: Request<Body>
 ) -> Result<impl IntoResponse> {
+    let addr = connect_info.map(|ci| ci.0).unwrap_or_else(|| {
+        std::net::SocketAddr::from(([127, 0, 0, 1], 8080))
+    });
+    let context = extract_validation_context(&headers, &addr, None, None);
+    
+    let content_type = headers
+        .get("content-type")
+        .and_then(|ct| ct.to_str().ok())
+        .unwrap_or("");
+    
+    let form = if content_type.contains("application/json") {
+        let Json(form_data) = Json::<FormPayload>::from_request(request, &state).await
+            .map_err(|_| AppError::BadRequest("Invalid JSON format".to_string()))?;
+        form_data
+    } else {
+        let Form(form_data) = Form::<FormPayload>::from_request(request, &state).await
+            .map_err(|_| AppError::BadRequest("Invalid form data".to_string()))?;
+        form_data
+    };
+    
+    info!("Form submission ({}) - name: {}, email: {}", 
+          if content_type.contains("application/json") { "JSON" } else { "Form" },
+          form.name, form.email);
     info!("Form submission - name: {}, email: {}", form.name, form.email);
     
     let addr = connect_info.map(|ci| ci.0).unwrap_or_else(|| {
@@ -1283,4 +1331,166 @@ fn create_cache_routes() -> Router<AppState> {
         .route("/health", get(cache::get_cache_health))
         .route("/clear", axum::routing::post(cache::clear_cache))
         .route("/invalidate", axum::routing::post(cache::invalidate_cache_pattern))
+}
+
+async fn handle_get_items_v2(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    connect_info: Option<axum::extract::ConnectInfo<std::net::SocketAddr>>,
+    Query(mut params): Query<ItemListQuery>
+) -> Result<impl IntoResponse> {
+    info!("GET /api/v2/items - enhanced version");
+    
+    let addr = connect_info.map(|ci| ci.0).unwrap_or_else(|| {
+        std::net::SocketAddr::from(([127, 0, 0, 1], 8080))
+    });
+    let context = extract_validation_context(&headers, &addr, None, None);
+    
+    let validation_result = params.validate_with_context(&context);
+    if !validation_result.is_valid {
+        return Err(AppError::Validation(format!(
+            "Query validation failed: {}",
+            serde_json::to_string(&validation_result.errors).unwrap_or_default()
+        )));
+    }
+    
+    let page_size = params.page_size.unwrap_or(50) as usize;
+    let page = params.page.unwrap_or(1);
+    let offset = ((page - 1) * page_size as u32) as usize;
+    
+    let items = state.item_service.get_items(Some(page_size), Some(offset)).await?;
+    
+    Ok(Json(ApiResponse::success(serde_json::json!({
+        "items": items,
+        "count": items.len(),
+        "page_size": page_size,
+        "page": page,
+        "offset": offset,
+        "api_version": "2.0",
+        "enhanced_features": true,
+        "source": if state.item_service.is_using_database() { "database" } else { "memory" },
+        "include_files": params.include_files.unwrap_or(false)
+    }))))
+}
+
+async fn handle_get_item_v2(
+    State(state): State<AppState>,
+    Path(id): Path<u64>
+) -> Result<impl IntoResponse> {
+    info!("GET /api/v2/items/{} - enhanced version", id);
+    
+    if id == 0 {
+        return Err(AppError::BadRequest("Invalid item ID".to_string()));
+    }
+
+    let item = state.item_service.get_item(id).await?;
+    
+    Ok(Json(ApiResponse::success(serde_json::json!({
+        "item": item,
+        "api_version": "2.0",
+        "enhanced_features": true,
+        "metadata": {
+            "retrieved_at": chrono::Utc::now().to_rfc3339(),
+            "source": if state.item_service.is_using_database() { "database" } else { "memory" }
+        }
+    }))))
+}
+
+async fn handle_post_item_v2(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    connect_info: Option<axum::extract::ConnectInfo<std::net::SocketAddr>>,
+    Json(payload): Json<CreateItemRequest>
+) -> Result<impl IntoResponse> {
+    info!("POST /api/v2/items - enhanced version - name: {}", payload.name);
+    
+    let addr = connect_info.map(|ci| ci.0).unwrap_or_else(|| {
+        std::net::SocketAddr::from(([127, 0, 0, 1], 8080))
+    });
+    let context = extract_validation_context(&headers, &addr, None, None);
+    
+    let validation_result = payload.validate_with_context(&context);
+    if !validation_result.is_valid {
+        return Err(AppError::Validation(format!(
+            "Validation failed: {}",
+            serde_json::to_string(&validation_result.errors).unwrap_or_default()
+        )));
+    }
+
+    let item = state.item_service.create_item(
+        payload.name,
+        payload.description,
+        payload.tags.unwrap_or_default(),
+        payload.metadata
+    ).await?;
+
+    if let Some(cache_manager) = &state.cache_manager {
+        cache_manager.invalidate_items_cache();
+        cache_manager.invalidate_search_cache();
+    }
+
+    if let Some(ws_manager) = &state.websocket_manager {
+        let event = crate::websocket::WebSocketEvent::ItemCreated(item.clone());
+        ws_manager.broadcast(event).await;
+    }
+
+    Ok((StatusCode::CREATED, Json(ApiResponse::success(serde_json::json!({
+        "item": item,
+        "api_version": "2.0",
+        "enhanced_features": true,
+        "created_at": chrono::Utc::now().to_rfc3339()
+    })))))
+}
+
+async fn handle_put_item_v2(
+    State(state): State<AppState>,
+    Path(id): Path<u64>,
+    headers: HeaderMap,
+    connect_info: Option<axum::extract::ConnectInfo<std::net::SocketAddr>>,
+    Json(payload): Json<CreateItemRequest>,
+) -> Result<impl IntoResponse> {
+    info!("PUT /api/v2/items/{} - enhanced version - name: {}", id, payload.name);
+    
+    if id == 0 {
+        return Err(AppError::BadRequest("Invalid item ID".to_string()));
+    }
+    
+    let addr = connect_info.map(|ci| ci.0).unwrap_or_else(|| {
+        std::net::SocketAddr::from(([127, 0, 0, 1], 8080))
+    });
+    let context = extract_validation_context(&headers, &addr, None, None);
+    
+    let validation_result = payload.validate_with_context(&context);
+    if !validation_result.is_valid {
+        return Err(AppError::Validation(format!(
+            "Validation failed: {}",
+            serde_json::to_string(&validation_result.errors).unwrap_or_default()
+        )));
+    }
+
+    let item = state.item_service.update_item(
+        id,
+        payload.name,
+        payload.description,
+        payload.tags.unwrap_or_default(),
+        payload.metadata
+    ).await?;
+
+    if let Some(cache_manager) = &state.cache_manager {
+        cache_manager.invalidate_item_cache(id);
+        cache_manager.invalidate_items_cache();
+        cache_manager.invalidate_search_cache();
+    }
+
+    if let Some(ws_manager) = &state.websocket_manager {
+        let event = crate::websocket::WebSocketEvent::ItemUpdated(item.clone());
+        ws_manager.broadcast(event).await;
+    }
+
+    Ok(Json(ApiResponse::success(serde_json::json!({
+        "item": item,
+        "api_version": "2.0",
+        "enhanced_features": true,
+        "updated_at": chrono::Utc::now().to_rfc3339()
+    }))))
 }
