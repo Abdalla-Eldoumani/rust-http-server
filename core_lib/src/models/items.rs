@@ -194,6 +194,7 @@ pub struct ItemListQuery {
 
     #[validate(length(max = 500, message = "Search query is too long"))]
     pub search: Option<String>,
+    pub include_files: Option<bool>,
 }
 
 impl ContextValidatable for ItemListQuery {
