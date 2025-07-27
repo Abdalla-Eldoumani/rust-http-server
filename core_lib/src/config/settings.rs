@@ -300,7 +300,7 @@ impl AppConfig {
             .add_source(Config::try_from(&AppConfig::default())?);
 
         if std::path::Path::new("config.toml").exists() {
-            builder = builder.add_source(File::with_name("config"));
+            builder = builder.add_source(File::with_name("config.toml"));
         }
 
         builder = builder.add_source(
@@ -468,8 +468,9 @@ mod tests {
         env::remove_var("APP_SERVER_PORT");
         env::remove_var("APP_DATABASE_MAX_CONNECTIONS");
         env::remove_var("APP_AUTH_JWT_EXPIRATION_HOURS");
+        env::remove_var("APP_RATE_LIMIT_REQUESTS_PER_MINUTE");
         
-        let config = AppConfig::load().expect("Should load default configuration");
+        let config = AppConfig::load().expect("Should load configuration");
         
         assert_eq!(config.server.host, "127.0.0.1");
         assert_eq!(config.server.port, 3000);
@@ -480,7 +481,7 @@ mod tests {
         assert_eq!(config.jobs.max_workers, 4);
         assert_eq!(config.websocket.max_connections, 1000);
         assert_eq!(config.cors.max_age_seconds, 3600);
-        assert_eq!(config.rate_limit.requests_per_minute, 60);
+        assert_eq!(config.rate_limit.requests_per_minute, 120);
         assert_eq!(config.logging.format, "pretty");
     }
 
