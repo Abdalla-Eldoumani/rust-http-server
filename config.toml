@@ -1,0 +1,113 @@
+# Advanced HTTP Server Configuration
+# This file contains all configuration options for the Rust HTTP server
+# with advanced features including authentication, WebSocket, file management,
+# caching, background jobs, and more.
+
+[server]
+# Server binding configuration
+host = "127.0.0.1"
+port = 3000
+max_connections = 1000
+request_timeout_seconds = 30
+shutdown_timeout_seconds = 10
+
+[database]
+# SQLite database configuration
+url = "sqlite:./data/app.db"
+max_connections = 10
+min_connections = 1
+connection_timeout_seconds = 30
+migrate_on_start = true
+
+[auth]
+# Authentication and JWT configuration
+# WARNING: Change jwt_secret in production!
+jwt_secret = "1a9e1a1d8f3e9613a555adea1881bbd1"
+jwt_expiration_hours = 24
+jwt_refresh_expiration_days = 7
+password_min_length = 8
+max_login_attempts = 5
+lockout_duration_minutes = 15
+
+[files]
+# File upload and management configuration
+upload_dir = "./uploads"
+max_file_size_mb = 10
+allowed_extensions = [
+    "jpg", "jpeg", "png", "gif",
+    "pdf", "txt", "doc", "docx"
+]
+temp_dir = "./temp"
+
+[cache]
+# In-memory caching configuration
+max_size = 1000
+default_ttl_seconds = 3600
+cleanup_interval_seconds = 300
+enable_stats = true
+
+[jobs]
+# Background job processing configuration
+max_workers = 4
+queue_size = 1000
+job_timeout_seconds = 300
+retry_attempts = 3
+retry_delay_seconds = 60
+
+[websocket]
+# WebSocket real-time communication configuration
+max_connections = 1000
+ping_interval_seconds = 30
+pong_timeout_seconds = 10
+message_buffer_size = 1024
+
+[cors]
+# Cross-Origin Resource Sharing configuration
+allowed_origins = [
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:8080",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:8080",
+    "https://localhost:3000",
+    "https://localhost:8080"
+]
+allowed_methods = [
+    "GET", "POST", "PUT", "DELETE",
+    "PATCH", "HEAD", "OPTIONS"
+]
+allowed_headers = [
+    "content-type", "authorization", "accept",
+    "x-requested-with", "user-agent", "origin",
+    "referer", "cache-control"
+]
+exposed_headers = [
+    "x-request-id", "x-response-time",
+    "x-ratelimit-limit", "x-ratelimit-remaining"
+]
+allow_credentials = true
+max_age_seconds = 3600
+enable_permissive_mode = false
+
+[rate_limit]
+# Rate limiting configuration
+enable = true
+requests_per_minute = 600
+burst_size = 50
+enable_user_based_limits = true
+user_requests_per_minute = 500
+admin_requests_per_minute = 1000
+cleanup_interval_seconds = 300
+
+[logging]
+# Logging configuration
+level = "info"
+format = "pretty"
+include_request_id = true
+include_user_info = true
+include_timing = true
+log_request_body = false
+log_response_body = false
+max_body_size = 1024
