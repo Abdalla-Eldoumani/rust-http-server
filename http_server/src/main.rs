@@ -1,7 +1,7 @@
 //! Main entry point for the HTTP server binary
 
 use anyhow::Result;
-use core_lib::{create_app_with_config, run_server, AppState, AppConfig, DatabaseManager, ItemRepository, get_database_pool, run_migrations, WebSocketManager, JwtService, FileManager, FileRepository, FileManagerConfig, CacheManager};
+use core_lib::{create_app_with_config, run_server, AppState, AppConfig, DatabaseManager, ItemRepository, get_database_pool, run_migrations, WebSocketManager, JwtService, FileManager, FileRepository, FileManagerConfig, CacheManager, AuthService, UserRepository, JobQueue};
 use std::net::SocketAddr;
 use tracing::info;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -36,31 +36,43 @@ async fn main() -> Result<()> {
         info!("Initializing database connection: {}", config.database.url);
         
         match initialize_database(&config.database.url).await {
-            Ok((db_manager, item_repository, file_manager)) => {
+            Ok((db_manager, item_repository, file_manager, user_repository, job_repository)) => {
                 info!("Database initialized successfully");
-                let mut state = AppState::with_database(db_manager, item_repository).with_rate_limiter(rate_limiter.clone());
+                let mut state = AppState::with_database(db_manager.clone(), item_repository).with_rate_limiter(rate_limiter.clone());
                 
                 if let Err(e) = state.migrate_to_database_if_needed().await {
                     tracing::warn!("Failed to migrate data to database: {}", e);
                 }
                 
-                state = state.with_file_manager(file_manager);
-                info!("File manager initialized");
-                
                 let jwt_service = match JwtService::new() {
                     Ok(jwt) => {
-                        info!("JWT service initialized for WebSocket authentication");
-                        Some(jwt)
+                        info!("JWT service initialized");
+                        jwt
                     }
                     Err(e) => {
-                        tracing::warn!("Failed to initialize JWT service for WebSocket auth: {}", e);
-                        None
+                        tracing::warn!("Failed to initialize JWT service: {}", e);
+                        JwtService::new().unwrap_or_else(|_| panic!("Failed to create default JWT service"))
                     }
                 };
                 
-                let websocket_manager = WebSocketManager::new(jwt_service);
-                state = state.with_websocket(websocket_manager);
+                let auth_service = AuthService::new(user_repository, jwt_service.clone());
+                state = state.with_auth(auth_service);
+                info!("Auth service initialized");
+                
+                state = state.with_file_manager(file_manager);
+                info!("File manager initialized");
+                
+                let websocket_manager = WebSocketManager::new(Some(jwt_service));
+                state = state.with_websocket(websocket_manager.clone());
                 info!("WebSocket manager initialized");
+                
+                let job_queue = state.create_job_queue_with_websocket(job_repository).await
+                    .unwrap_or_else(|e| {
+                        tracing::warn!("Failed to create job queue: {}", e);
+                        JobQueue::new(core_lib::jobs::JobRepository::new(db_manager.pool().clone()))
+                    });
+                state = state.with_job_queue(job_queue);
+                info!("Job queue initialized");
                 
                 let cache_manager = CacheManager::default();
                 state = state.with_cache_manager(cache_manager);
@@ -169,7 +181,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn initialize_database(database_url: &str) -> Result<(DatabaseManager, ItemRepository, FileManager)> {
+async fn initialize_database(database_url: &str) -> Result<(DatabaseManager, ItemRepository, FileManager, UserRepository, core_lib::jobs::JobRepository)> {
     let pool = get_database_pool(database_url).await
         .map_err(|e| anyhow::anyhow!("Failed to create database pool: {}", e))?;
 
@@ -178,6 +190,8 @@ async fn initialize_database(database_url: &str) -> Result<(DatabaseManager, Ite
 
     let db_manager = DatabaseManager::new(pool.clone());
     let item_repository = ItemRepository::new(pool.clone());
+    let user_repository = UserRepository::new(pool.clone());
+    let job_repository = core_lib::jobs::JobRepository::new(pool.clone());
     
     let file_repository = FileRepository::new(pool);
     let file_manager_config = FileManagerConfig::default();
@@ -186,7 +200,7 @@ async fn initialize_database(database_url: &str) -> Result<(DatabaseManager, Ite
     file_manager.initialize().await
         .map_err(|e| anyhow::anyhow!("Failed to initialize file manager: {}", e))?;
 
-    Ok((db_manager, item_repository, file_manager))
+    Ok((db_manager, item_repository, file_manager, user_repository, job_repository))
 }
 
 fn init_tracing() {
