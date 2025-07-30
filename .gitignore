@@ -5,3 +5,6 @@ tests.txt
 /.kiro
 /compatibility_results
 /docs
+/middleware_results
+/cache_results
+/validation_results
