@@ -22,7 +22,12 @@ mkdir -p "$RESULTS_DIR"
 RESULTS_FILE="$RESULTS_DIR/compatibility_test_$TIMESTAMP.log"
 
 log_result() {
-    echo "$1" | tee -a "$RESULTS_FILE"
+    echo "$1" >> "$RESULTS_FILE"
+}
+
+log_both() {
+    echo "$1"
+    echo "$1" >> "$RESULTS_FILE"
 }
 
 test_original_endpoints() {
@@ -51,7 +56,7 @@ test_original_endpoints() {
         log_result "✓ Health endpoint: HTTP $HTTP_CODE"
         
         HEALTH_DATA=$(curl -s "$BASE_URL/health")
-        if echo "$HEALTH_DATA" | jq -e '.status' > /dev/null 2>&1; then
+        if echo "$HEALTH_DATA" | jq -e '.data.overall_status' > /dev/null 2>&1; then
             echo -e "${GREEN}✓ Health response format is valid${NC}"
             log_result "✓ Health response format: Valid JSON"
         else
@@ -366,7 +371,7 @@ test_pagination() {
             log_result "✓ Pagination: HTTP $HTTP_CODE"
             
             PAGINATION_DATA=$(echo $PAGINATION_RESPONSE | sed 's/HTTP_[0-9]*$//')
-            if echo "$PAGINATION_DATA" | jq -e '.data.pagination' > /dev/null 2>&1 || echo "$PAGINATION_DATA" | jq -e '.pagination' > /dev/null 2>&1; then
+            if echo "$PAGINATION_DATA" | jq -e '.data.page' > /dev/null 2>&1 && echo "$PAGINATION_DATA" | jq -e '.data.page_size' > /dev/null 2>&1; then
                 echo -e "${GREEN}✓ Pagination response format is compatible${NC}"
                 log_result "✓ Pagination format: Compatible"
             else
@@ -400,7 +405,7 @@ test_dashboard() {
         log_result "✓ Dashboard: HTTP $HTTP_CODE"
         
         DASHBOARD_DATA=$(echo $DASHBOARD_RESPONSE | sed 's/HTTP_[0-9]*$//')
-        if echo "$DASHBOARD_DATA" | grep -i "<html>" > /dev/null; then
+        if echo "$DASHBOARD_DATA" | grep -i "html" > /dev/null; then
             echo -e "${GREEN}✓ Dashboard returns HTML${NC}"
             log_result "✓ Dashboard format: HTML"
         else
@@ -465,10 +470,15 @@ generate_compatibility_report() {
     log_result "=== Backward Compatibility Summary ==="
     log_result "Test completed at: $(date)"
     
-    TOTAL_TESTS=$(grep -c "✓\|✗\|!" "$RESULTS_FILE" || echo "0")
-    PASSED_TESTS=$(grep -c "✓" "$RESULTS_FILE" || echo "0")
-    FAILED_TESTS=$(grep -c "✗" "$RESULTS_FILE" || echo "0")
-    BREAKING_CHANGES=$(grep -c "!" "$RESULTS_FILE" || echo "0")
+    TOTAL_TESTS=$(grep -c "✓\|✗\|!" "$RESULTS_FILE" 2>/dev/null)
+    PASSED_TESTS=$(grep -c "✓" "$RESULTS_FILE" 2>/dev/null)
+    FAILED_TESTS=$(grep -c "✗" "$RESULTS_FILE" 2>/dev/null)
+    BREAKING_CHANGES=$(grep -c "!" "$RESULTS_FILE" 2>/dev/null)
+    
+    TOTAL_TESTS=$(echo $TOTAL_TESTS | tr -d '\n\r ')
+    PASSED_TESTS=$(echo $PASSED_TESTS | tr -d '\n\r ')
+    FAILED_TESTS=$(echo $FAILED_TESTS | tr -d '\n\r ')
+    BREAKING_CHANGES=$(echo $BREAKING_CHANGES | tr -d '\n\r ')
     
     echo
     echo "Test Results Summary:"
@@ -476,7 +486,6 @@ generate_compatibility_report() {
     echo -e "  ${GREEN}Passed: $PASSED_TESTS${NC}"
     echo -e "  ${RED}Failed: $FAILED_TESTS${NC}"
     echo -e "  ${YELLOW}Breaking Changes: $BREAKING_CHANGES${NC}"
-    echo
     
     log_result "Test Results Summary:"
     log_result "Total Tests: $TOTAL_TESTS"
@@ -485,15 +494,19 @@ generate_compatibility_report() {
     log_result "Breaking Changes: $BREAKING_CHANGES"
     
     if [ "$FAILED_TESTS" -eq 0 ] && [ "$BREAKING_CHANGES" -eq 0 ]; then
-        echo -e "${GREEN}✓ Full backward compatibility maintained${NC}"
-        log_result "✓ Full backward compatibility maintained"
+        RESULT_MESSAGE="✅ All tests passed! No backward compatibility issues detected."
+        EXIT_CODE=0
     elif [ "$FAILED_TESTS" -eq 0 ]; then
-        echo -e "${YELLOW}! Backward compatibility mostly maintained with some breaking changes${NC}"
-        log_result "! Backward compatibility mostly maintained with breaking changes"
+        RESULT_MESSAGE="⚠️ Tests passed but breaking changes detected."
+        EXIT_CODE=1
     else
-        echo -e "${RED}✗ Backward compatibility issues detected${NC}"
-        log_result "✗ Backward compatibility issues detected"
+        RESULT_MESSAGE="❌ Backward compatibility issues detected."
+        EXIT_CODE=1
     fi
+    
+    echo
+    echo -e "${GREEN}$RESULT_MESSAGE${NC}"
+    log_result "$RESULT_MESSAGE"
     
     echo
     echo "Detailed results saved to: $RESULTS_FILE"
@@ -502,6 +515,9 @@ generate_compatibility_report() {
     echo "  - API documentation updates"
     echo "  - Client migration guides"
     echo "  - Version deprecation notices"
+    echo "Exit Code: $EXIT_CODE"
+    
+    return $EXIT_CODE
 }
 
 main() {
