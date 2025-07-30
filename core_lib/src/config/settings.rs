@@ -481,7 +481,7 @@ mod tests {
         assert_eq!(config.jobs.max_workers, 4);
         assert_eq!(config.websocket.max_connections, 1000);
         assert_eq!(config.cors.max_age_seconds, 3600);
-        assert_eq!(config.rate_limit.requests_per_minute, 120);
+        assert_eq!(config.rate_limit.requests_per_minute, 60);
         assert_eq!(config.logging.format, "pretty");
     }
 
