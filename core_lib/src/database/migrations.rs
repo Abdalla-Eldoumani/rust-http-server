@@ -253,19 +253,49 @@ impl MigrationManager {
             Migration {
                 version: 6,
                 name: "update_jobs_table".to_string(),
-                checksum: "jobs_update_v1".to_string(),
+                checksum: "jobs_update_v2".to_string(),
                 sql_statements: vec![
                     r#"
-                    ALTER TABLE jobs ADD COLUMN result TEXT
+                    -- Create new jobs table with all required columns
+                    CREATE TABLE IF NOT EXISTS jobs_new (
+                        id TEXT PRIMARY KEY,
+                        job_type TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        payload TEXT NOT NULL,
+                        result TEXT,
+                        error_message TEXT,
+                        created_at TEXT NOT NULL,
+                        started_at TEXT,
+                        completed_at TEXT,
+                        retry_count INTEGER NOT NULL DEFAULT 0,
+                        max_retries INTEGER NOT NULL DEFAULT 3,
+                        priority TEXT NOT NULL DEFAULT 'normal'
+                    )
                     "#.to_string(),
                     r#"
-                    ALTER TABLE jobs ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0
+                    -- Copy data from old table if it exists
+                    INSERT OR IGNORE INTO jobs_new (id, job_type, status, payload, error_message, created_at, started_at, completed_at)
+                    SELECT id, job_type, status, payload, 
+                           COALESCE(error_message, '') as error_message,
+                           created_at, started_at, completed_at
+                    FROM jobs WHERE EXISTS (SELECT name FROM sqlite_master WHERE type='table' AND name='jobs')
                     "#.to_string(),
                     r#"
-                    ALTER TABLE jobs ADD COLUMN max_retries INTEGER NOT NULL DEFAULT 3
+                    -- Drop old table if it exists
+                    DROP TABLE IF EXISTS jobs
                     "#.to_string(),
                     r#"
-                    ALTER TABLE jobs ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'
+                    -- Rename new table to jobs
+                    ALTER TABLE jobs_new RENAME TO jobs
+                    "#.to_string(),
+                    r#"
+                    CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)
+                    "#.to_string(),
+                    r#"
+                    CREATE INDEX IF NOT EXISTS idx_jobs_type ON jobs(job_type)
+                    "#.to_string(),
+                    r#"
+                    CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at)
                     "#.to_string(),
                     r#"
                     CREATE INDEX IF NOT EXISTS idx_jobs_priority ON jobs(priority)
@@ -345,6 +375,6 @@ mod tests {
         assert_eq!(table_count, 4);
         
         let history = migration_manager.get_migration_history().await.unwrap();
-        assert_eq!(history.len(), 5);
+        assert_eq!(history.len(), 6);
     }
 }
