@@ -123,7 +123,8 @@ impl FileManager {
     pub async fn get_file_data(&self, file_id: Uuid) -> Result<Option<(FileMetadata, Vec<u8>)>> {
         match self.repository.get_by_id(file_id).await? {
             Some(file) => {
-                let data = async_fs::read(&file.path).await.map_err(|e| {
+                let normalized_path = Path::new(&file.path);
+                let data = async_fs::read(normalized_path).await.map_err(|e| {
                     tracing::error!("Failed to read file {}: {}", file.path, e);
                     AppError::InternalServerError
                 })?;
