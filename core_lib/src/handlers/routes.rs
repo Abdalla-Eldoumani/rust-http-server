@@ -93,7 +93,7 @@ async fn handle_root(State(state): State<AppState>) -> impl IntoResponse {
     if state.file_manager.is_some() {
         endpoints["files"] = serde_json::json!({
             "upload": "/api/files/upload",
-            "serve": "/api/files/{id}",
+            "serve": "/api/files/{id}/serve",
             "info": "/api/files/{id}/info",
             "download": "/api/files/{id}/download",
             "delete": "/api/files/{id}",
@@ -1298,11 +1298,11 @@ fn create_file_routes() -> Router<AppState> {
 
     Router::new()
         .route("/upload", post(files::upload_file))
-        .route("/:id", get(files::serve_file))
+        .route("/:id/serve", get(files::serve_file))
         .route("/:id/info", get(files::get_file_info))
         .route("/:id/download", get(files::download_file))
         .route("/:id", delete(files::delete_file))
-        .route("/:id/associate", put(files::associate_file_with_item))
+        .route("/:id/associate", post(files::associate_file_with_item))
         .route("/", get(files::list_files))
         .route("/item/:id", get(files::get_item_files))
 }
