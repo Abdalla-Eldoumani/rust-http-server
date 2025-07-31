@@ -183,30 +183,35 @@ impl MigrationManager {
             Migration {
                 version: 4,
                 name: "create_jobs_table".to_string(),
-                checksum: "jobs_v1".to_string(),
+                checksum: "jobs_v2".to_string(),
                 sql_statements: vec![
                     r#"
                     CREATE TABLE jobs (
                         id TEXT PRIMARY KEY,
                         job_type TEXT NOT NULL,
+                        status TEXT NOT NULL,
                         payload TEXT NOT NULL,
-                        status TEXT NOT NULL DEFAULT 'Pending',
-                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        started_at DATETIME,
-                        completed_at DATETIME,
+                        result TEXT,
                         error_message TEXT,
-                        created_by INTEGER,
-                        FOREIGN KEY (created_by) REFERENCES users(id)
+                        created_at TEXT NOT NULL,
+                        started_at TEXT,
+                        completed_at TEXT,
+                        retry_count INTEGER NOT NULL DEFAULT 0,
+                        max_retries INTEGER NOT NULL DEFAULT 3,
+                        priority TEXT NOT NULL DEFAULT 'normal'
                     )
                     "#.to_string(),
                     r#"
                     CREATE INDEX idx_jobs_status ON jobs(status)
                     "#.to_string(),
                     r#"
+                    CREATE INDEX idx_jobs_type ON jobs(job_type)
+                    "#.to_string(),
+                    r#"
                     CREATE INDEX idx_jobs_created_at ON jobs(created_at)
                     "#.to_string(),
                     r#"
-                    CREATE INDEX idx_jobs_job_type ON jobs(job_type)
+                    CREATE INDEX idx_jobs_priority ON jobs(priority)
                     "#.to_string(),
                 ],
             },
@@ -242,6 +247,28 @@ impl MigrationManager {
                         INSERT INTO items_fts(rowid, name, description) 
                         VALUES (new.id, new.name, new.description);
                     END
+                    "#.to_string(),
+                ],
+            },
+            Migration {
+                version: 6,
+                name: "update_jobs_table".to_string(),
+                checksum: "jobs_update_v1".to_string(),
+                sql_statements: vec![
+                    r#"
+                    ALTER TABLE jobs ADD COLUMN result TEXT
+                    "#.to_string(),
+                    r#"
+                    ALTER TABLE jobs ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0
+                    "#.to_string(),
+                    r#"
+                    ALTER TABLE jobs ADD COLUMN max_retries INTEGER NOT NULL DEFAULT 3
+                    "#.to_string(),
+                    r#"
+                    ALTER TABLE jobs ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'
+                    "#.to_string(),
+                    r#"
+                    CREATE INDEX IF NOT EXISTS idx_jobs_priority ON jobs(priority)
                     "#.to_string(),
                 ],
             },
