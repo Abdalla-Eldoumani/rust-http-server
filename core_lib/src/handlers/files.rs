@@ -327,7 +327,7 @@ pub async fn associate_file_with_item(
     auth_user: Option<Extension<AuthUser>>,
     Path(file_id): Path<Uuid>,
     Json(req_body): Json<AssociateFileRequest>,
-) -> Result<Json<FileUploadResponse>> {
+) -> Result<Json<serde_json::Value>> {
     let file_manager = state
         .file_manager
         .as_ref()
@@ -366,7 +366,13 @@ pub async fn associate_file_with_item(
         .associate_with_item(file_id, req_body.item_id)
         .await?;
 
-    Ok(Json(updated_metadata.into()))
+    let response = serde_json::json!({
+        "success": true,
+        "data": updated_metadata,
+        "message": "File associated with item successfully"
+    });
+
+    Ok(Json(response))
 }
 
 pub async fn get_item_files(
