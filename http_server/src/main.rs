@@ -193,6 +193,9 @@ async fn initialize_database(database_url: &str) -> Result<(DatabaseManager, Ite
     let user_repository = UserRepository::new(pool.clone());
     let job_repository = core_lib::jobs::JobRepository::new(pool.clone());
     
+    job_repository.create_table().await
+        .map_err(|e| anyhow::anyhow!("Failed to initialize job repository: {}", e))?;
+    
     let file_repository = FileRepository::new(pool);
     let file_manager_config = FileManagerConfig::default();
     let file_manager = FileManager::new(file_manager_config, file_repository);
