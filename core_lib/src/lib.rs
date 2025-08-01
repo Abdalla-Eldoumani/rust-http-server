@@ -5,6 +5,7 @@ pub mod cache;
 pub mod config;
 pub mod database;
 pub mod error;
+pub mod extractors;
 pub mod files;
 pub mod handlers;
 pub mod health;
@@ -220,7 +221,15 @@ pub fn create_app_with_config(state: AppState, config: AppConfig) -> Router {
     router = router.layer(axum_middleware::from_fn(validation::middleware::validation_middleware));
 
     router = router.layer(axum_middleware::from_fn(
+        middleware::request_validation::request_validation_middleware
+    ));
+
+    router = router.layer(axum_middleware::from_fn(
         middleware::logging::log_request_with_config(config.logging)
+    ));
+
+    router = router.layer(axum_middleware::from_fn(
+        middleware::request_validation::security_headers_middleware
     ));
 
     router.with_state(state)
@@ -242,6 +251,33 @@ async fn metrics_middleware(
     let duration = start.elapsed();
     let status = response.status().as_u16();
     state.metrics.record_response(&path, duration.as_millis(), status);
+    
+    Ok(response)
+}
+
+async fn security_headers_middleware(
+    request: Request<Body>,
+    next: Next,
+) -> std::result::Result<Response, std::convert::Infallible> {
+    let path = request.uri().path().to_string();
+    let mut response = next.run(request).await;
+    
+    let headers = response.headers_mut();
+    
+    headers.insert("X-Frame-Options", "DENY".parse().unwrap());
+    headers.insert("X-Content-Type-Options", "nosniff".parse().unwrap());
+    headers.insert("X-XSS-Protection", "1; mode=block".parse().unwrap());
+    headers.insert("Referrer-Policy", "strict-origin-when-cross-origin".parse().unwrap());
+    headers.insert("Content-Security-Policy", "default-src 'self'".parse().unwrap());
+    headers.insert("Strict-Transport-Security", "max-age=31536000; includeSubDomains".parse().unwrap());
+    
+    if path.starts_with("/api/v1/") {
+        headers.insert("X-API-Version", "1.0".parse().unwrap());
+    } else if path.starts_with("/api/v2/") {
+        headers.insert("X-API-Version", "2.0".parse().unwrap());
+    } else if path.starts_with("/api/") {
+        headers.insert("X-API-Version", "1.0".parse().unwrap());
+    }
     
     Ok(response)
 }
