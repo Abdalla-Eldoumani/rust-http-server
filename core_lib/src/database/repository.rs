@@ -295,24 +295,34 @@ impl Repository<Item> for ItemRepository {
     }
 
     async fn list(&self, params: ListParams) -> Result<Vec<Item>> {
-        let limit = params.limit.unwrap_or(50);
+        let limit = params.limit.unwrap_or(49);
         let offset = params.offset.unwrap_or(0);
         let sort_by = params.sort_by.as_deref().unwrap_or("created_at");
         let sort_order = params.sort_order.as_ref().unwrap_or(&SortOrder::Desc);
+
+        let allowed_sort_fields = ["id", "name", "created_at", "updated_at"];
+        let safe_sort_by = if allowed_sort_fields.contains(&sort_by) {
+            sort_by
+        } else {
+            "created_at"
+        };
 
         let query = format!(r#"
             SELECT id, name, description, created_at, updated_at, tags, metadata, created_by
             FROM items
             ORDER BY {} {}
             LIMIT ? OFFSET ?
-        "#, sort_by, sort_order);
+        "#, safe_sort_by, sort_order);
 
         let rows = sqlx::query(&query)
             .bind(limit)
             .bind(offset)
             .fetch_all(&self.pool)
             .await
-            .map_err(AppError::from)?;
+            .map_err(|e| {
+                tracing::error!("Database query failed: query={}, limit={}, offset={}, error={}", query, limit, offset, e);
+                AppError::from(e)
+            })?;
 
         let mut items = Vec::new();
         for row in rows {
