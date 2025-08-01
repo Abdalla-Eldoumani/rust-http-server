@@ -126,6 +126,16 @@ pub async fn cache_middleware(
 }
 
 fn should_cache_request(request: &Request<Body>, config: &CacheMiddlewareConfig) -> bool {
+    let path = request.uri().path();
+    
+    if path.starts_with("/auth/") {
+        return false;
+    }
+    
+    if request.headers().contains_key("authorization") {
+        return false;
+    }
+    
     match request.method() {
         &Method::GET => config.cache_get,
         &Method::POST => config.cache_post,
