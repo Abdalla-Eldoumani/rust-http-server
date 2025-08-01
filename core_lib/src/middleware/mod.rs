@@ -7,3 +7,4 @@ pub mod integration;
 pub mod logging;
 pub mod optional_auth;
 pub mod rate_limit;
+pub mod request_validation;
