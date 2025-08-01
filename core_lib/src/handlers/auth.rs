@@ -127,15 +127,31 @@ pub async fn refresh_token(
 
 pub async fn get_current_user(
     State(state): State<AppState>,
-    axum::extract::Extension(auth_user): axum::extract::Extension<crate::middleware::auth::AuthUser>,
+    headers: axum::http::HeaderMap,
 ) -> Result<Json<UserResponse>, AppError> {
     let auth_service = state
         .auth_service
         .as_ref()
         .ok_or_else(|| AppError::InternalServerError)?;
     
+    use crate::middleware::auth::extract_token_from_header;
+    let token = extract_token_from_header(&headers)?;
+    
+    tracing::debug!("Validating token: {}", &token[..std::cmp::min(20, token.len())]);
+    
+    let claims = auth_service.jwt_service().validate_access_token(&token)
+        .map_err(|e| {
+            tracing::debug!("Token validation failed: {:?}", e);
+            AppError::Authentication("Invalid or expired token".to_string())
+        })?;
+    
+    let role: crate::auth::models::UserRole = claims.role.parse()
+        .map_err(|_| AppError::Authentication("Invalid role in token".to_string()))?;
+    let user_id: i64 = claims.sub.parse()
+        .map_err(|_| AppError::Authentication("Invalid user ID in token".to_string()))?;
+    
     let user = auth_service
-        .get_user_by_id(auth_user.user_id)
+        .get_user_by_id(user_id)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
     
@@ -166,6 +182,16 @@ pub async fn get_user_by_id(
 }
 
 pub fn create_auth_routes() -> Router<AppState> {
+    Router::new()
+        .route("/register", post(register_user))
+        .route("/login", post(login_user))
+        .route("/refresh", post(refresh_token))
+        .route("/logout", post(logout_user))
+        .route("/me", get(get_current_user))
+        .route("/users/:id", get(get_user_by_id))
+}
+
+pub fn create_auth_routes_with_middleware() -> Router<AppState> {
     Router::new()
         .route("/register", post(register_user))
         .route("/login", post(login_user))
