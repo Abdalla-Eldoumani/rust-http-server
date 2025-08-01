@@ -155,7 +155,7 @@ pub async fn require_self_or_admin(
     Ok(next.run(request).await)
 }
 
-fn extract_token_from_header(headers: &HeaderMap) -> Result<String, AppError> {
+pub fn extract_token_from_header(headers: &HeaderMap) -> Result<String, AppError> {
     let auth_header = headers
         .get(AUTHORIZATION)
         .ok_or_else(|| AppError::Authentication("Missing Authorization header".to_string()))?
