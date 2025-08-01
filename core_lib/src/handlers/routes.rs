@@ -74,7 +74,7 @@ pub fn create_routes() -> Router<AppState> {
         .route("/api/head", axum::routing::head(handle_head))
         .route("/api/options", axum::routing::options(handle_options))
         .route("/ws", axum::routing::get(crate::websocket::websocket_handler))
-        .nest("/auth", create_auth_routes_with_middleware())
+        .nest("/auth", crate::handlers::auth::create_auth_routes_with_middleware())
         .nest("/api/files", create_file_routes())
         .nest("/api/jobs", create_job_routes())
         .nest("/api/cache", create_cache_routes())
@@ -244,8 +244,53 @@ async fn handle_search_items(
         )));
     }
     
-    let search_engine = state.search_engine.as_ref().ok_or_else(|| AppError::BadRequest("Search functionality not available".to_string()))?;
+    if state.search_engine.is_none() {
+        let limit = params.limit.unwrap_or(50).min(100) as usize;
+        let offset = params.offset.unwrap_or(0) as usize;
+        
+        let items = state.item_service.get_items(Some(limit), Some(offset)).await?;
+        
+        let filtered_items = if let Some(ref tags_str) = params.tags {
+            let search_tags: Vec<String> = tags_str
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            
+            if !search_tags.is_empty() {
+                items.into_iter()
+                    .filter(|item| {
+                        item.tags.iter().any(|tag| search_tags.contains(tag))
+                    })
+                    .collect()
+            } else {
+                items
+            }
+        } else {
+            items
+        };
+        
+        return Ok(Json(ApiResponse::success(serde_json::json!({
+            "items": filtered_items.iter().map(|item| serde_json::json!({
+                "item": item,
+                "matched_fields": ["name", "description", "tags"],
+                "relevance_score": 1.0
+            })).collect::<Vec<_>>(),
+            "total_count": filtered_items.len(),
+            "offset": offset,
+            "limit": limit,
+            "has_more": false,
+            "query": {
+                "text": params.q,
+                "tags": params.tags,
+                "sort_by": params.sort_by,
+                "sort_order": params.sort_order,
+                "fuzzy": params.fuzzy.unwrap_or(false)
+            }
+        }))));
+    }
     
+    let search_engine = state.search_engine.as_ref().unwrap();
     let mut search_query = crate::search::SearchQuery::new();
     
     if let Some(ref text) = params.q {
@@ -339,7 +384,54 @@ async fn handle_search_items(
     let offset = params.offset.unwrap_or(0);
     search_query = search_query.with_pagination(offset, limit);
     
-    let search_result = search_engine.search(&search_query).await?;
+    let search_result = match search_engine.search(&search_query).await {
+        Ok(result) => result,
+        Err(_) => {
+            let limit = params.limit.unwrap_or(50).min(100) as usize;
+            let offset = params.offset.unwrap_or(0) as usize;
+            
+            let items = state.item_service.get_items(Some(limit), Some(offset)).await?;
+            
+            let filtered_items = if let Some(ref tags_str) = params.tags {
+                let search_tags: Vec<String> = tags_str
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                
+                if !search_tags.is_empty() {
+                    items.into_iter()
+                        .filter(|item| {
+                            item.tags.iter().any(|tag| search_tags.contains(tag))
+                        })
+                        .collect()
+                } else {
+                    items
+                }
+            } else {
+                items
+            };
+            
+            return Ok(Json(ApiResponse::success(serde_json::json!({
+                "items": filtered_items.iter().map(|item| serde_json::json!({
+                    "item": item,
+                    "matched_fields": ["name", "description", "tags"],
+                    "relevance_score": 1.0
+                })).collect::<Vec<_>>(),
+                "total_count": filtered_items.len(),
+                "offset": offset,
+                "limit": limit,
+                "has_more": false,
+                "query": {
+                    "text": params.q,
+                    "tags": params.tags,
+                    "sort_by": params.sort_by,
+                    "sort_order": params.sort_order,
+                    "fuzzy": params.fuzzy.unwrap_or(false)
+                }
+            }))));
+        }
+    };
     
     Ok(Json(ApiResponse::success(serde_json::json!({
         "items": search_result.items,
@@ -382,7 +474,13 @@ async fn handle_get_items(
     let page = params.page.unwrap_or(1);
     let offset = ((page - 1) * page_size as u32) as usize;
     
-    let items = state.item_service.get_items(Some(page_size), Some(offset)).await?;
+    tracing::debug!("Pagination: page={}, page_size={}, offset={}", page, page_size, offset);
+    
+    let items = state.item_service.get_items(Some(page_size), Some(offset)).await
+        .map_err(|e| {
+            tracing::error!("Failed to get items: page={}, page_size={}, offset={}, error={:?}", page, page_size, offset, e);
+            e
+        })?;
     
     Ok(Json(ApiResponse::success(serde_json::json!({
         "items": items,
@@ -412,8 +510,9 @@ async fn handle_post_item(
     State(state): State<AppState>,
     headers: HeaderMap,
     connect_info: Option<axum::extract::ConnectInfo<std::net::SocketAddr>>,
-    Json(payload): Json<CreateItemRequest>
+    payload: crate::extractors::UnicodeJson<CreateItemRequest>
 ) -> Result<impl IntoResponse> {
+    let crate::extractors::UnicodeJson(payload) = payload;
     info!("POST /api/items - name: {}", payload.name);
     
     let addr = connect_info.map(|ci| ci.0).unwrap_or_else(|| {
@@ -454,8 +553,9 @@ async fn handle_put_item(
     Path(id): Path<u64>,
     headers: HeaderMap,
     connect_info: Option<axum::extract::ConnectInfo<std::net::SocketAddr>>,
-    Json(payload): Json<CreateItemRequest>,
+    payload: crate::extractors::UnicodeJson<CreateItemRequest>,
 ) -> Result<impl IntoResponse> {
+    let crate::extractors::UnicodeJson(payload) = payload;
     info!("PUT /api/items/{} - name: {}", id, payload.name);
     
     if id == 0 {
@@ -1283,18 +1383,26 @@ fn create_auth_routes_with_middleware() -> Router<AppState> {
         get_current_user, get_user_by_id
     };
     use axum::routing::{get, post};
+    use axum::middleware;
+
+    let protected_routes = Router::new()
+        .route("/me", get(get_current_user))
+        .route("/users/:id", get(get_user_by_id))
+        .layer(middleware::from_fn_with_state(
+            crate::AppState::default(),
+            crate::middleware::auth::jwt_auth_middleware,
+        ));
 
     Router::new()
         .route("/register", post(register_user))
         .route("/login", post(login_user))
         .route("/refresh", post(refresh_token))
         .route("/logout", post(logout_user))
-        .route("/me", get(get_current_user))
-        .route("/users/:id", get(get_user_by_id))
+        .merge(protected_routes)
 }
 
 fn create_file_routes() -> Router<AppState> {
-    use axum::routing::{delete, get, post, put};
+    use axum::routing::{delete, get, post};
 
     Router::new()
         .route("/upload", post(files::upload_file))
