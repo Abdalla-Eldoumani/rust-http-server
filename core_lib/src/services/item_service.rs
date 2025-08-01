@@ -38,7 +38,13 @@ impl ItemService {
                     sort_by: Some("created_at".to_string()),
                     sort_order: Some(crate::database::SortOrder::Desc),
                 };
-                return repo.list(params).await;
+                tracing::debug!("ItemService: calling repo.list with limit={:?}, offset={:?}", params.limit, params.offset);
+                let limit = params.limit;
+                let offset = params.offset;
+                return repo.list(params).await.map_err(|e| {
+                    tracing::error!("ItemService: repo.list failed with limit={:?}, offset={:?}, error={:?}", limit, offset, e);
+                    e
+                });
             }
         }
 
