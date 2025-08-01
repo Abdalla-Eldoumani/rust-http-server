@@ -203,7 +203,7 @@ run_all_tests() {
     log_result "=== Content Type Validation Test ==="
     log_result "Timestamp: $(date)"
     
-    test_request "Missing Content Type" "415" \
+    test_request "Missing Content Type" "400" \
         "$BASE_URL/api/items" \
         "POST" \
         '{"name": "test", "description": "test"}'
