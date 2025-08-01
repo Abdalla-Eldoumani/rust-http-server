@@ -132,9 +132,9 @@ test_cors_middleware() {
     
     echo -e "${YELLOW}Testing CORS preflight request${NC}"
     RESPONSE=$(curl -s -i -X OPTIONS \
-        -H "Origin: http://localhost:3001" \
-        -H "Access-Control-Request-Method: POST" \
-        -H "Access-Control-Request-Headers: Content-Type,Authorization" \
+        -H "Origin: http://localhost:3000" \
+        -H "access-control-request-method: POST" \
+        -H "access-control-request-headers: Content-Type,Authorization" \
         "$BASE_URL/api/items" 2>&1)
     
     check_response_status "$RESPONSE" "200" "CORS preflight request"
@@ -144,7 +144,7 @@ test_cors_middleware() {
     
     echo -e "${YELLOW}Testing CORS headers in regular request${NC}"
     CORS_RESPONSE=$(curl -s -i \
-        -H "Origin: http://localhost:3001" \
+        -H "Origin: http://localhost:3000" \
         "$BASE_URL/" 2>&1)
     
     check_response_status "$CORS_RESPONSE" "200" "CORS regular request"
@@ -152,7 +152,7 @@ test_cors_middleware() {
     
     echo -e "${YELLOW}Testing CORS credentials support${NC}"
     CREDS_RESPONSE=$(curl -s -i \
-        -H "Origin: http://localhost:3001" \
+        -H "Origin: http://localhost:3000" \
         "$BASE_URL/api/stats" 2>&1)
     
     check_header_present "$CREDS_RESPONSE" "access-control-allow-credentials" "CORS credentials"
