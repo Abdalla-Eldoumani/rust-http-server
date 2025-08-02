@@ -30,6 +30,7 @@ pub fn create_routes() -> Router<AppState> {
         .route("/ready", get(crate::handlers::health::handle_readiness))
         .route("/live", get(crate::handlers::health::handle_liveness))
         .route("/dashboard", get(handle_dashboard))
+        .route("/test", get(handle_test_page))
         .route("/api/stats", get(handle_stats))
         .route("/api/metrics", get(crate::handlers::metrics::handle_enhanced_metrics))
         .route("/api/system/metrics", get(crate::handlers::metrics::handle_system_metrics))
@@ -781,6 +782,42 @@ async fn handle_options() -> impl IntoResponse {
     }))))
 }
 
+async fn handle_test_page() -> impl IntoResponse {
+    Html(r#"
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Test Page</title>
+        <style>
+            body { font-family: Arial; background: #f0f0f0; padding: 20px; }
+            .test { background: white; padding: 20px; border-radius: 8px; }
+        </style>
+    </head>
+    <body>
+        <div class="test">
+            <h1>Test Page Working!</h1>
+            <p>If you can see this styled page, HTML serving is working.</p>
+            <button onclick="testAPI()">Test API Call</button>
+            <div id="result"></div>
+        </div>
+        <script>
+            console.log('JavaScript is working!');
+            async function testAPI() {
+                try {
+                    const response = await fetch('/api/metrics');
+                    const data = await response.json();
+                    document.getElementById('result').innerHTML = 
+                        '<pre>' + JSON.stringify(data.data, null, 2) + '</pre>';
+                } catch (error) {
+                    document.getElementById('result').innerHTML = 'Error: ' + error.message;
+                }
+            }
+        </script>
+    </body>
+    </html>
+    "#)
+}
+
 async fn handle_dashboard() -> impl IntoResponse {
     Html(r#"
     <!DOCTYPE html>
@@ -788,8 +825,9 @@ async fn handle_dashboard() -> impl IntoResponse {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Rust HTTP Server - Dashboard</title>
+        <title>Rust HTTP Server - Advanced Dashboard</title>
         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
         <style>
             * {
                 box-sizing: border-box;
@@ -799,10 +837,24 @@ async fn handle_dashboard() -> impl IntoResponse {
             
             body {
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-                background: #0f172a;
+                background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
                 color: #e2e8f0;
                 min-height: 100vh;
                 overflow-x: hidden;
+                position: relative;
+            }
+            
+            body::before {
+                content: '';
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: radial-gradient(circle at 20% 80%, rgba(120, 119, 198, 0.1) 0%, transparent 50%),
+                           radial-gradient(circle at 80% 20%, rgba(255, 119, 198, 0.1) 0%, transparent 50%);
+                pointer-events: none;
+                z-index: -1;
             }
             
             .container {
@@ -854,18 +906,68 @@ async fn handle_dashboard() -> impl IntoResponse {
             }
             
             .metric-card {
-                background: #1e293b;
-                border: 1px solid #334155;
-                border-radius: 12px;
+                background: rgba(30, 41, 59, 0.8);
+                backdrop-filter: blur(10px);
+                border: 1px solid rgba(51, 65, 85, 0.5);
+                border-radius: 16px;
                 padding: 24px;
                 transition: all 0.3s ease;
+                position: relative;
+                overflow: hidden;
+            }
+            
+            .metric-card::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 3px;
+                background: linear-gradient(90deg, #60a5fa, #a78bfa);
+                transform: scaleX(0);
+                transition: transform 0.3s ease;
+            }
+            
+            .metric-card:hover::before {
+                transform: scaleX(1);
             }
             
             .metric-card:hover {
-                border-color: #60a5fa;
-                transform: translateY(-2px);
-                box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+                border-color: rgba(96, 165, 250, 0.5);
+                transform: translateY(-4px);
+                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+                background: rgba(30, 41, 59, 0.9);
             }
+            
+            .metric-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                margin-bottom: 12px;
+            }
+            
+            .metric-icon {
+                width: 40px;
+                height: 40px;
+                border-radius: 10px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 1.2rem;
+                margin-bottom: 16px;
+            }
+            
+            .metric-trend {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                font-size: 0.75rem;
+                font-weight: 500;
+            }
+            
+            .trend-up { color: #10b981; }
+            .trend-down { color: #ef4444; }
+            .trend-neutral { color: #94a3b8; }
             
             .metric-label {
                 font-size: 0.875rem;
@@ -1036,12 +1138,29 @@ async fn handle_dashboard() -> impl IntoResponse {
     <body>
         <div class="container">
             <div class="header">
-                <h1>🚀 Rust HTTP Server Dashboard</h1>
-                <div class="status-badge">LIVE</div>
+                <div>
+                    <h1>🚀 Rust HTTP Server Dashboard</h1>
+                    <div style="display: flex; gap: 12px; margin-top: 8px;">
+                        <div class="status-badge">LIVE</div>
+                        <div class="status-badge" style="background: #3b82f6;" id="connectionStatus">CONNECTED</div>
+                        <div class="status-badge" style="background: #8b5cf6;" id="lastUpdate">Updated now</div>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 12px; align-items: center;">
+                    <select id="timeRange" style="background: #1e293b; color: white; border: 1px solid #334155; border-radius: 8px; padding: 8px 12px;">
+                        <option value="1h">Last Hour</option>
+                        <option value="6h">Last 6 Hours</option>
+                        <option value="24h">Last 24 Hours</option>
+                        <option value="7d">Last 7 Days</option>
+                    </select>
+                    <button id="refreshBtn" style="background: #60a5fa; color: white; border: none; border-radius: 8px; padding: 8px 16px; cursor: pointer; transition: all 0.2s;">
+                        🔄 Refresh
+                    </button>
+                </div>
             </div>
             
             <div class="metrics-grid" id="metricsGrid">
-                <!-- Metrics will be populated here -->
+                <!-- Enhanced metrics will be populated here -->
             </div>
             
             <div class="charts-row">
@@ -1192,33 +1311,85 @@ async fn handle_dashboard() -> impl IntoResponse {
 
         async function updateDashboard() {
             try {
+                updateConnectionStatus(false);
                 const response = await fetch('/api/metrics');
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
                 const result = await response.json();
                 const metrics = result.data;
                 
+                updateConnectionStatus(true);
+                
+                const prevMetrics = window.prevMetrics || {};
+                window.prevMetrics = metrics;
+                
                 document.getElementById('metricsGrid').innerHTML = `
                     <div class="metric-card">
-                        <div class="metric-label">Total Requests</div>
+                        <div class="metric-icon" style="background: linear-gradient(135deg, #60a5fa, #3b82f6);">📊</div>
+                        <div class="metric-header">
+                            <div class="metric-label">Total Requests</div>
+                            <div class="metric-trend ${getTrendClass(metrics.total_requests, prevMetrics.total_requests)}">
+                                ${getTrendIcon(metrics.total_requests, prevMetrics.total_requests)}
+                                ${getTrendText(metrics.total_requests, prevMetrics.total_requests)}
+                            </div>
+                        </div>
                         <div class="metric-value">${metrics.total_requests.toLocaleString()}</div>
                     </div>
                     <div class="metric-card">
-                        <div class="metric-label">Success Rate</div>
+                        <div class="metric-icon" style="background: linear-gradient(135deg, #10b981, #059669);">✅</div>
+                        <div class="metric-header">
+                            <div class="metric-label">Success Rate</div>
+                            <div class="metric-trend ${getTrendClass(100 - metrics.error_rate, 100 - (prevMetrics.error_rate || 0), true)}">
+                                ${getTrendIcon(100 - metrics.error_rate, 100 - (prevMetrics.error_rate || 0), true)}
+                                ${((100 - metrics.error_rate) - (100 - (prevMetrics.error_rate || 0))).toFixed(1)}%
+                            </div>
+                        </div>
                         <div class="metric-value success">${(100 - metrics.error_rate).toFixed(1)}%</div>
                     </div>
                     <div class="metric-card">
-                        <div class="metric-label">Error Rate</div>
+                        <div class="metric-icon" style="background: linear-gradient(135deg, ${metrics.error_rate > 5 ? '#ef4444, #dc2626' : metrics.error_rate > 0 ? '#f59e0b, #d97706' : '#10b981, #059669'});">${metrics.error_rate > 5 ? '❌' : metrics.error_rate > 0 ? '⚠️' : '✅'}</div>
+                        <div class="metric-header">
+                            <div class="metric-label">Error Rate</div>
+                            <div class="metric-trend ${getTrendClass(metrics.error_rate, prevMetrics.error_rate || 0, false)}">
+                                ${getTrendIcon(metrics.error_rate, prevMetrics.error_rate || 0, false)}
+                                ${(metrics.error_rate - (prevMetrics.error_rate || 0)).toFixed(1)}%
+                            </div>
+                        </div>
                         <div class="metric-value ${metrics.error_rate > 5 ? 'error' : metrics.error_rate > 0 ? 'warning' : 'success'}">${metrics.error_rate.toFixed(1)}%</div>
                     </div>
                     <div class="metric-card">
-                        <div class="metric-label">Avg Response Time</div>
+                        <div class="metric-icon" style="background: linear-gradient(135deg, #60a5fa, #3b82f6);">⚡</div>
+                        <div class="metric-header">
+                            <div class="metric-label">Avg Response Time</div>
+                            <div class="metric-trend ${getTrendClass(metrics.average_response_time_ms, prevMetrics.average_response_time_ms || 0, false)}">
+                                ${getTrendIcon(metrics.average_response_time_ms, prevMetrics.average_response_time_ms || 0, false)}
+                                ${(metrics.average_response_time_ms - (prevMetrics.average_response_time_ms || 0)).toFixed(0)}ms
+                            </div>
+                        </div>
                         <div class="metric-value info">${metrics.average_response_time_ms.toFixed(0)}ms</div>
                     </div>
                     <div class="metric-card">
-                        <div class="metric-label">Requests/Second</div>
+                        <div class="metric-icon" style="background: linear-gradient(135deg, #a78bfa, #8b5cf6);">🚀</div>
+                        <div class="metric-header">
+                            <div class="metric-label">Requests/Second</div>
+                            <div class="metric-trend ${getTrendClass(metrics.requests_per_second, prevMetrics.requests_per_second || 0)}">
+                                ${getTrendIcon(metrics.requests_per_second, prevMetrics.requests_per_second || 0)}
+                                ${(metrics.requests_per_second - (prevMetrics.requests_per_second || 0)).toFixed(2)}
+                            </div>
+                        </div>
                         <div class="metric-value">${metrics.requests_per_second.toFixed(2)}</div>
                     </div>
                     <div class="metric-card">
-                        <div class="metric-label">Uptime</div>
+                        <div class="metric-icon" style="background: linear-gradient(135deg, #10b981, #059669);">⏱️</div>
+                        <div class="metric-header">
+                            <div class="metric-label">Uptime</div>
+                            <div class="metric-trend trend-up">
+                                ↗️ ${formatUptime(metrics.uptime_seconds - (prevMetrics.uptime_seconds || 0))}
+                            </div>
+                        </div>
                         <div class="metric-value">${formatUptime(metrics.uptime_seconds)}</div>
                     </div>
                 `;
@@ -1255,6 +1426,26 @@ async fn handle_dashboard() -> impl IntoResponse {
                 
             } catch (error) {
                 console.error('Failed to update dashboard:', error);
+                updateConnectionStatus(false);
+                
+                const errorNotification = document.createElement('div');
+                errorNotification.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    background: #ef4444;
+                    color: white;
+                    padding: 12px 20px;
+                    border-radius: 8px;
+                    z-index: 1000;
+                    animation: slideIn 0.3s ease;
+                `;
+                errorNotification.textContent = `Connection error: ${error.message}`;
+                document.body.appendChild(errorNotification);
+                
+                setTimeout(() => {
+                    errorNotification.remove();
+                }, 5000);
             }
         }
 
@@ -1274,6 +1465,49 @@ async fn handle_dashboard() -> impl IntoResponse {
                 return `${secs}s`;
             }
         }
+        
+        function getTrendClass(current, previous, higherIsBetter = true) {
+            if (!previous || current === previous) return 'trend-neutral';
+            const isIncreasing = current > previous;
+            if (higherIsBetter) {
+                return isIncreasing ? 'trend-up' : 'trend-down';
+            } else {
+                return isIncreasing ? 'trend-down' : 'trend-up';
+            }
+        }
+        
+        function getTrendIcon(current, previous, higherIsBetter = true) {
+            if (!previous || current === previous) return '➡️';
+            const isIncreasing = current > previous;
+            if (higherIsBetter) {
+                return isIncreasing ? '↗️' : '↘️';
+            } else {
+                return isIncreasing ? '↘️' : '↗️';
+            }
+        }
+        
+        function getTrendText(current, previous) {
+            if (!previous) return 'N/A';
+            const diff = current - previous;
+            return diff >= 0 ? `+${diff}` : `${diff}`;
+        }
+        
+        function updateConnectionStatus(isConnected) {
+            const statusEl = document.getElementById('connectionStatus');
+            const lastUpdateEl = document.getElementById('lastUpdate');
+            
+            if (isConnected) {
+                statusEl.textContent = 'CONNECTED';
+                statusEl.style.background = '#10b981';
+                lastUpdateEl.textContent = 'Updated now';
+                lastUpdateEl.style.background = '#8b5cf6';
+            } else {
+                statusEl.textContent = 'DISCONNECTED';
+                statusEl.style.background = '#ef4444';
+                lastUpdateEl.textContent = 'Connection lost';
+                lastUpdateEl.style.background = '#6b7280';
+            }
+        }
 
         function cleanupChartData() {
             if (responseTimeChart.data.labels.length > 20) {
@@ -1282,11 +1516,53 @@ async fn handle_dashboard() -> impl IntoResponse {
             }
         }
 
-        updateDashboard();
-        setInterval(() => {
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideIn {
+                from { transform: translateX(100%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            @keyframes countUp {
+                from { transform: scale(0.8); opacity: 0; }
+                to { transform: scale(1); opacity: 1; }
+            }
+            .metric-value {
+                animation: countUp 0.5s ease;
+            }
+        `;
+        document.head.appendChild(style);
+        
+        document.getElementById('refreshBtn').addEventListener('click', () => {
             updateDashboard();
+            document.getElementById('refreshBtn').style.transform = 'rotate(360deg)';
+            setTimeout(() => {
+                document.getElementById('refreshBtn').style.transform = 'rotate(0deg)';
+            }, 500);
+        });
+        
+        document.getElementById('timeRange').addEventListener('change', (e) => {
+            console.log('Time range changed to:', e.target.value);
+        });
+        
+        updateDashboard();
+        
+        let refreshInterval = 2000;
+        let errorCount = 0;
+        
+        const autoRefresh = () => {
+            updateDashboard().then(() => {
+                errorCount = 0;
+                refreshInterval = 2000;
+            }).catch(() => {
+                errorCount++;
+                refreshInterval = Math.min(refreshInterval * 1.5, 30000);
+            });
+            
             cleanupChartData();
-        }, 2000);
+            setTimeout(autoRefresh, refreshInterval);
+        };
+        
+        setTimeout(autoRefresh, 2000);
 
         const resizeObserver = new ResizeObserver(entries => {
             for (let entry of entries) {
