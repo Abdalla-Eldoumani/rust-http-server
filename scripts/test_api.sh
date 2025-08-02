@@ -168,6 +168,24 @@ else
 fi
 TOTAL_TESTS=$((TOTAL_TESTS + 1))
 
+echo -n "[5.1] User Registration again: "
+REGISTER_RESPONSE=$(curl -s -X POST $BASE_URL/auth/register -H 'Content-Type: application/json' -d "{\"username\": \"testuser\", \"email\": \"test@example.com\", \"password\": \"MyVerySecureP@ssw0rd2025!\", \"password_confirmation\": \"MyVerySecureP@ssw0rd2025!\"}")
+if echo "$REGISTER_RESPONSE" | grep -q '"id"'; then
+    echo -e "${GREEN}✅ PASS${NC}"
+    PASSED_TESTS=$((PASSED_TESTS + 1))
+    PASSED_TEST_NAMES+=("User Registration")
+elif echo "$REGISTER_RESPONSE" | grep -q "already exists"; then
+    echo -e "${GREEN}✅ PASS${NC} (User already exists - expected)"
+    PASSED_TESTS=$((PASSED_TESTS + 1))
+    PASSED_TEST_NAMES+=("User Registration")
+else
+    echo -e "${RED}❌ FAIL${NC}"
+    FAILED_TESTS=$((FAILED_TESTS + 1))
+    FAILED_TEST_NAMES+=("User Registration")
+    echo -e "   ${RED}Response: $REGISTER_RESPONSE${NC}"
+fi
+TOTAL_TESTS=$((TOTAL_TESTS + 1))
+
 echo -n "[6] User Login: "
 LOGIN_RESPONSE=$(curl -s -X POST $BASE_URL/auth/login -H 'Content-Type: application/json' -d '{"username_or_email": "testuser", "password": "MyVerySecureP@ssw0rd2025!"}')
 if echo "$LOGIN_RESPONSE" | grep -q "access_token"; then
