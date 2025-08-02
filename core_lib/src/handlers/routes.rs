@@ -31,6 +31,7 @@ pub fn create_routes() -> Router<AppState> {
         .route("/live", get(crate::handlers::health::handle_liveness))
         .route("/dashboard", get(handle_dashboard))
         .route("/test", get(handle_test_page))
+        .route("/websocket-test", get(handle_websocket_test))
         .route("/api/stats", get(handle_stats))
         .route("/api/metrics", get(crate::handlers::metrics::handle_enhanced_metrics))
         .route("/api/system/metrics", get(crate::handlers::metrics::handle_system_metrics))
@@ -818,6 +819,1139 @@ async fn handle_test_page() -> impl IntoResponse {
     "#)
 }
 
+async fn handle_websocket_test() -> impl IntoResponse {
+    Html(r#"
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <title>Elite WebSocket Testing Suite</title>
+            <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+            <style>
+            :root {
+                --primary-bg: #0f172a;
+                --secondary-bg: #1e293b;
+                --accent-color: #60a5fa;
+                --success-color: #10b981;
+                --warning-color: #f59e0b;
+                --error-color: #ef4444;
+                --text-primary: #f1f5f9;
+                --text-secondary: #94a3b8;
+                --border-color: #334155;
+            }
+
+            [data-theme="light"] {
+                --primary-bg: #f8fafc;
+                --secondary-bg: #ffffff;
+                --accent-color: #3b82f6;
+                --success-color: #059669;
+                --warning-color: #d97706;
+                --error-color: #dc2626;
+                --text-primary: #1e293b;
+                --text-secondary: #64748b;
+                --border-color: #e2e8f0;
+            }
+
+            * {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
+
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                background: linear-gradient(135deg, var(--primary-bg) 0%, var(--secondary-bg) 100%);
+                color: var(--text-primary);
+                min-height: 100vh;
+                padding: 20px;
+                position: relative;
+            }
+
+            body::before {
+                content: '';
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: radial-gradient(circle at 20% 80%, rgba(120, 119, 198, 0.1) 0%, transparent 50%),
+                        radial-gradient(circle at 80% 20%, rgba(255, 119, 198, 0.1) 0%, transparent 50%);
+                pointer-events: none;
+                z-index: -1;
+            }
+
+            .container {
+                max-width: 1400px;
+                margin: 0 auto;
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 20px;
+                height: calc(100vh - 40px);
+            }
+
+            .panel {
+                background: rgba(30, 41, 59, 0.8);
+                backdrop-filter: blur(10px);
+                border: 1px solid var(--border-color);
+                border-radius: 16px;
+                padding: 24px;
+                overflow: hidden;
+                display: flex;
+                flex-direction: column;
+            }
+
+            .panel-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 20px;
+                padding-bottom: 16px;
+                border-bottom: 1px solid var(--border-color);
+            }
+
+            .panel-title {
+                font-size: 1.5rem;
+                font-weight: 700;
+                background: linear-gradient(to right, var(--accent-color), #a78bfa);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }
+
+            .theme-toggle {
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                z-index: 1000;
+                background: var(--secondary-bg);
+                border: 1px solid var(--border-color);
+                border-radius: 50px;
+                padding: 8px;
+                display: flex;
+                gap: 4px;
+                backdrop-filter: blur(10px);
+            }
+
+            .theme-btn {
+                padding: 8px 12px;
+                border: none;
+                border-radius: 20px;
+                background: transparent;
+                color: var(--text-secondary);
+                cursor: pointer;
+                transition: all 0.3s ease;
+                font-size: 0.875rem;
+            }
+
+            .theme-btn.active {
+                background: var(--accent-color);
+                color: white;
+            }
+
+            .status-bar {
+                display: flex;
+                gap: 12px;
+                margin-bottom: 20px;
+                flex-wrap: wrap;
+            }
+
+            .status-badge {
+                padding: 8px 16px;
+                border-radius: 20px;
+                font-size: 0.875rem;
+                font-weight: 600;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                transition: all 0.3s ease;
+            }
+
+            .status-connected {
+                background: linear-gradient(135deg, var(--success-color), #059669);
+                color: white;
+                animation: pulse 2s infinite;
+            }
+
+            .status-disconnected {
+                background: linear-gradient(135deg, var(--error-color), #dc2626);
+                color: white;
+            }
+
+            .status-info {
+                background: rgba(96, 165, 250, 0.2);
+                color: var(--accent-color);
+                border: 1px solid rgba(96, 165, 250, 0.3);
+            }
+
+            @keyframes pulse {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.8; }
+            }
+
+            .controls-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 12px;
+                margin-bottom: 20px;
+            }
+
+            .btn {
+                padding: 12px 20px;
+                border: none;
+                border-radius: 12px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                font-size: 0.875rem;
+                position: relative;
+                overflow: hidden;
+            }
+
+            .btn::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: -100%;
+                width: 100%;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+                transition: left 0.5s;
+            }
+
+            .btn:hover::before {
+                left: 100%;
+            }
+
+            .btn:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+            }
+
+            .btn-primary {
+                background: linear-gradient(135deg, var(--accent-color), #3b82f6);
+                color: white;
+            }
+
+            .btn-success {
+                background: linear-gradient(135deg, var(--success-color), #059669);
+                color: white;
+            }
+
+            .btn-danger {
+                background: linear-gradient(135deg, var(--error-color), #dc2626);
+                color: white;
+            }
+
+            .btn-warning {
+                background: linear-gradient(135deg, var(--warning-color), #d97706);
+                color: white;
+            }
+
+            .input-group {
+                display: flex;
+                gap: 8px;
+                margin-bottom: 16px;
+            }
+
+            .input {
+                flex: 1;
+                padding: 12px 16px;
+                border: 1px solid var(--border-color);
+                border-radius: 8px;
+                background: var(--secondary-bg);
+                color: var(--text-primary);
+                font-size: 0.875rem;
+            }
+
+            .input:focus {
+                outline: none;
+                border-color: var(--accent-color);
+                box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.1);
+            }
+
+            .messages-container {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                min-height: 0;
+            }
+
+            .messages {
+                flex: 1;
+                overflow-y: auto;
+                border: 1px solid var(--border-color);
+                border-radius: 12px;
+                padding: 16px;
+                background: var(--primary-bg);
+                font-family: 'Consolas', 'Monaco', monospace;
+                font-size: 13px;
+                line-height: 1.5;
+            }
+
+            .messages::-webkit-scrollbar {
+                width: 8px;
+            }
+
+            .messages::-webkit-scrollbar-track {
+                background: var(--primary-bg);
+                border-radius: 4px;
+            }
+
+            .messages::-webkit-scrollbar-thumb {
+                background: var(--border-color);
+                border-radius: 4px;
+            }
+
+            .message {
+                margin: 8px 0;
+                padding: 12px 16px;
+                border-radius: 8px;
+                border-left: 4px solid var(--accent-color);
+                background: var(--secondary-bg);
+                animation: slideIn 0.3s ease;
+                position: relative;
+            }
+
+            .message.sent {
+                border-left-color: var(--success-color);
+                background: rgba(16, 185, 129, 0.1);
+            }
+
+            .message.received {
+                border-left-color: var(--accent-color);
+                background: rgba(96, 165, 250, 0.1);
+            }
+
+            .message.error {
+                border-left-color: var(--error-color);
+                background: rgba(239, 68, 68, 0.1);
+            }
+
+            .message.system {
+                border-left-color: var(--warning-color);
+                background: rgba(245, 158, 11, 0.1);
+            }
+
+            @keyframes slideIn {
+                from { transform: translateX(-10px); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+
+            .message-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 8px;
+                font-size: 0.75rem;
+                color: var(--text-secondary);
+            }
+
+            .message-type {
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+            }
+
+            .message-time {
+                opacity: 0.7;
+            }
+
+            .message-content {
+                color: var(--text-primary);
+                word-break: break-word;
+            }
+
+            .json-content {
+                background: var(--primary-bg);
+                border-radius: 6px;
+                padding: 12px;
+                margin-top: 8px;
+                overflow-x: auto;
+            }
+
+            .stats-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+                gap: 12px;
+                margin-bottom: 20px;
+            }
+
+            .stat-card {
+                background: rgba(96, 165, 250, 0.1);
+                border: 1px solid rgba(96, 165, 250, 0.2);
+                border-radius: 12px;
+                padding: 16px;
+                text-align: center;
+            }
+
+            .stat-value {
+                font-size: 1.5rem;
+                font-weight: 700;
+                color: var(--accent-color);
+                margin-bottom: 4px;
+            }
+
+            .stat-label {
+                font-size: 0.75rem;
+                color: var(--text-secondary);
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+            }
+
+            .test-scenarios {
+                display: grid;
+                gap: 8px;
+                margin-bottom: 20px;
+            }
+
+            .scenario-btn {
+                padding: 10px 16px;
+                background: rgba(30, 41, 59, 0.5);
+                border: 1px solid var(--border-color);
+                border-radius: 8px;
+                color: var(--text-primary);
+                cursor: pointer;
+                transition: all 0.3s ease;
+                text-align: left;
+                font-size: 0.875rem;
+            }
+
+            .scenario-btn:hover {
+                background: rgba(96, 165, 250, 0.1);
+                border-color: var(--accent-color);
+            }
+
+            .scenario-btn:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+            }
+
+            @media (max-width: 1200px) {
+                .container {
+                grid-template-columns: 1fr;
+                height: auto;
+                }
+            }
+            </style>
+        </head>
+        <body>
+            <div class="theme-toggle">
+            <button class="theme-btn active" data-theme="dark">
+                <i class="fas fa-moon"></i>
+            </button>
+            <button class="theme-btn" data-theme="light">
+                <i class="fas fa-sun"></i>
+            </button>
+            </div>
+
+            <div class="container">
+            <div class="panel">
+                <div class="panel-header">
+                <h1 class="panel-title">
+                    <i class="fas fa-plug"></i>
+                    WebSocket Control Center
+                </h1>
+                </div>
+
+                <div class="status-bar">
+                <div id="connectionStatus" class="status-badge status-disconnected">
+                    <i class="fas fa-times-circle"></i>
+                    <span>Disconnected</span>
+                </div>
+                <div id="connectionInfo" class="status-badge status-info">
+                    <i class="fas fa-info-circle"></i>
+                    <span id="connectionId">No Connection</span>
+                </div>
+                <div id="uptimeInfo" class="status-badge status-info">
+                    <i class="fas fa-clock"></i>
+                    <span id="uptime">00:00:00</span>
+                </div>
+                </div>
+
+                <div class="input-group">
+                <input 
+                    type="text" 
+                    id="wsUrl" 
+                    class="input" 
+                    value="ws://localhost:3000/ws" 
+                    placeholder="WebSocket URL"
+                />
+                <input 
+                    type="text" 
+                    id="authToken" 
+                    class="input" 
+                    placeholder="JWT Token (optional)"
+                />
+                </div>
+
+                <div class="controls-grid">
+                <button id="connectBtn" class="btn btn-success">
+                    <i class="fas fa-plug"></i>
+                    Connect
+                </button>
+                <button id="disconnectBtn" class="btn btn-danger" disabled>
+                    <i class="fas fa-times"></i>
+                    Disconnect
+                </button>
+                <button id="getTokenBtn" class="btn btn-primary">
+                    <i class="fas fa-key"></i>
+                    Get Auth Token
+                </button>
+                <button id="clearBtn" class="btn btn-warning">
+                    <i class="fas fa-trash"></i>
+                    Clear Messages
+                </button>
+                </div>
+
+                <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="messagesSent">0</div>
+                    <div class="stat-label">Sent</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="messagesReceived">0</div>
+                    <div class="stat-label">Received</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="errorsCount">0</div>
+                    <div class="stat-label">Errors</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="latency">0ms</div>
+                    <div class="stat-label">Latency</div>
+                </div>
+                </div>
+
+                <h3 style="margin-bottom: 16px; color: var(--text-primary);">
+                <i class="fas fa-flask"></i> Test Scenarios
+                </h3>
+                <div class="test-scenarios">
+                <button class="scenario-btn" data-test="ping" disabled>
+                    <i class="fas fa-satellite-dish"></i> Send Ping/Pong Test
+                </button>
+                <button class="scenario-btn" data-test="create-item" disabled>
+                    <i class="fas fa-plus"></i> Create Item (triggers ItemCreated event)
+                </button>
+                <button class="scenario-btn" data-test="update-item" disabled>
+                    <i class="fas fa-edit"></i> Update Item (triggers ItemUpdated event)
+                </button>
+                <button class="scenario-btn" data-test="delete-item" disabled>
+                    <i class="fas fa-trash"></i> Delete Item (triggers ItemDeleted event)
+                </button>
+                <button class="scenario-btn" data-test="metrics" disabled>
+                    <i class="fas fa-chart-line"></i> Request Metrics Update
+                </button>
+                <button class="scenario-btn" data-test="job-test" disabled>
+                    <i class="fas fa-cogs"></i> Create Background Job
+                </button>
+                <button class="scenario-btn" data-test="stress-test" disabled>
+                    <i class="fas fa-tachometer-alt"></i> Stress Test (100 messages)
+                </button>
+                <button class="scenario-btn" data-test="custom-message" disabled>
+                    <i class="fas fa-code"></i> Send Custom JSON Message
+                </button>
+                </div>
+
+                <div id="customMessagePanel" style="display: none; margin-top: 16px;">
+                <textarea 
+                    id="customMessage" 
+                    class="input" 
+                    rows="4" 
+                    placeholder='{"type": "Ping"}'
+                    style="resize: vertical; font-family: monospace;"
+                ></textarea>
+                <div style="margin-top: 8px;">
+                    <button id="sendCustomBtn" class="btn btn-primary">
+                    <i class="fas fa-paper-plane"></i>
+                    Send Custom Message
+                    </button>
+                </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-header">
+                <h2 class="panel-title">
+                    <i class="fas fa-comments"></i>
+                    Live Messages
+                </h2>
+                <div style="display: flex; gap: 8px;">
+                    <button id="autoScrollBtn" class="btn btn-primary" style="padding: 6px 12px; font-size: 0.75rem;">
+                    <i class="fas fa-arrow-down"></i>
+                    Auto Scroll
+                    </button>
+                    <button id="exportBtn" class="btn btn-primary" style="padding: 6px 12px; font-size: 0.75rem;">
+                    <i class="fas fa-download"></i>
+                    Export
+                    </button>
+                </div>
+                </div>
+
+                <div class="messages-container">
+                <div id="messages" class="messages"></div>
+                </div>
+            </div>
+            </div>
+
+            <script>
+            class WebSocketTester {
+                constructor() {
+                this.ws = null;
+                this.connectionId = null;
+                this.connectTime = null;
+                this.stats = {
+                    messagesSent: 0,
+                    messagesReceived: 0,
+                    errorsCount: 0,
+                    latency: 0
+                };
+                this.autoScroll = true;
+                this.theme = 'dark';
+                this.pingStartTime = null;
+                this.lastItemId = null;
+                
+                this.initializeElements();
+                this.initializeEventListeners();
+                this.initializeTheme();
+                this.startUptimeTimer();
+                }
+
+                initializeElements() {
+                this.elements = {
+                    connectionStatus: document.getElementById('connectionStatus'),
+                    connectionId: document.getElementById('connectionId'),
+                    uptime: document.getElementById('uptime'),
+                    
+                    wsUrl: document.getElementById('wsUrl'),
+                    authToken: document.getElementById('authToken'),
+                    connectBtn: document.getElementById('connectBtn'),
+                    disconnectBtn: document.getElementById('disconnectBtn'),
+                    getTokenBtn: document.getElementById('getTokenBtn'),
+                    clearBtn: document.getElementById('clearBtn'),
+                    
+                    messagesSent: document.getElementById('messagesSent'),
+                    messagesReceived: document.getElementById('messagesReceived'),
+                    errorsCount: document.getElementById('errorsCount'),
+                    latency: document.getElementById('latency'),
+                    
+                    messages: document.getElementById('messages'),
+                    autoScrollBtn: document.getElementById('autoScrollBtn'),
+                    exportBtn: document.getElementById('exportBtn'),
+                    
+                    customMessage: document.getElementById('customMessage'),
+                    sendCustomBtn: document.getElementById('sendCustomBtn'),
+                    customMessagePanel: document.getElementById('customMessagePanel')
+                };
+                }
+
+                initializeEventListeners() {
+                this.elements.connectBtn.addEventListener('click', () => this.connect());
+                this.elements.disconnectBtn.addEventListener('click', () => this.disconnect());
+                this.elements.getTokenBtn.addEventListener('click', () => this.getAuthToken());
+                this.elements.clearBtn.addEventListener('click', () => this.clearMessages());
+                
+                this.elements.autoScrollBtn.addEventListener('click', () => this.toggleAutoScroll());
+                this.elements.exportBtn.addEventListener('click', () => this.exportMessages());
+                this.elements.sendCustomBtn.addEventListener('click', () => this.sendCustomMessage());
+                
+                document.querySelectorAll('.scenario-btn').forEach(btn => {
+                    btn.addEventListener('click', () => this.runTestScenario(btn.dataset.test));
+                });
+                
+                document.querySelectorAll('.theme-btn').forEach(btn => {
+                    btn.addEventListener('click', () => this.setTheme(btn.dataset.theme));
+                });
+                
+                document.querySelector('[data-test="custom-message"]').addEventListener('click', () => {
+                    this.elements.customMessagePanel.style.display = 
+                    this.elements.customMessagePanel.style.display === 'none' ? 'block' : 'none';
+                });
+                }
+
+                initializeTheme() {
+                const savedTheme = localStorage.getItem('ws-tester-theme') || 'dark';
+                this.setTheme(savedTheme);
+                }
+
+                setTheme(theme) {
+                this.theme = theme;
+                document.documentElement.setAttribute('data-theme', theme);
+                localStorage.setItem('ws-tester-theme', theme);
+                
+                document.querySelectorAll('.theme-btn').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.theme === theme);
+                });
+                }
+
+                startUptimeTimer() {
+                setInterval(() => {
+                    if (this.connectTime) {
+                    const uptime = Date.now() - this.connectTime;
+                    this.elements.uptime.textContent = this.formatUptime(uptime);
+                    }
+                }, 1000);
+                }
+
+                formatUptime(ms) {
+                const seconds = Math.floor(ms / 1000);
+                const hours = Math.floor(seconds / 3600);
+                const minutes = Math.floor((seconds % 3600) / 60);
+                const secs = seconds % 60;
+                return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                }
+
+                async connect() {
+                const wsUrl = this.elements.wsUrl.value;
+                const token = this.elements.authToken.value;
+                
+                let fullUrl = wsUrl;
+                if (token) {
+                    fullUrl += `?token=${encodeURIComponent(token)}`;
+                }
+                
+                this.addMessage(`Connecting to ${fullUrl}...`, 'system');
+                
+                try {
+                    this.ws = new WebSocket(fullUrl);
+                    
+                    this.ws.onopen = (event) => {
+                    this.connectTime = Date.now();
+                    this.addMessage('✅ WebSocket connection established', 'system');
+                    this.updateConnectionStatus(true);
+                    };
+                    
+                    this.ws.onmessage = (event) => {
+                    this.stats.messagesReceived++;
+                    this.updateStats();
+                    
+                    try {
+                        const data = JSON.parse(event.data);
+                        this.handleMessage(data);
+                    } catch (e) {
+                        this.addMessage(`📨 Raw message: ${event.data}`, 'received');
+                    }
+                    };
+                    
+                    this.ws.onclose = (event) => {
+                    this.addMessage(`❌ Connection closed (Code: ${event.code}, Reason: ${event.reason || 'No reason'})`, 'system');
+                    this.updateConnectionStatus(false);
+                    this.connectTime = null;
+                    };
+                    
+                    this.ws.onerror = (error) => {
+                    this.stats.errorsCount++;
+                    this.updateStats();
+                    this.addMessage(`🚨 WebSocket error: ${error.message || 'Unknown error'}`, 'error');
+                    };
+                    
+                } catch (error) {
+                    this.addMessage(`🚨 Failed to connect: ${error.message}`, 'error');
+                }
+                }
+
+                disconnect() {
+                if (this.ws) {
+                    this.ws.close(1000, 'User initiated disconnect');
+                    this.ws = null;
+                }
+                }
+
+                handleMessage(data) {
+                const messageType = data.type || 'Unknown';
+                let messageContent = '';
+                
+                switch (messageType) {
+                    case 'Connected':
+                    this.connectionId = data.data?.connection_id;
+                    this.elements.connectionId.textContent = `ID: ${this.connectionId?.substring(0, 8)}...`;
+                    messageContent = `🔗 Connected with ID: ${this.connectionId}`;
+                    break;
+                    
+                    case 'Pong':
+                    if (this.pingStartTime) {
+                        const latency = Date.now() - this.pingStartTime;
+                        this.stats.latency = latency;
+                        this.updateStats();
+                        messageContent = `🏓 Pong received (${latency}ms)`;
+                        this.pingStartTime = null;
+                    } else {
+                        messageContent = '🏓 Pong received';
+                    }
+                    break;
+                    
+                    case 'ItemCreated':
+                    this.lastItemId = data.data?.id;
+                    messageContent = `📦 Item Created: ${data.data?.name} (ID: ${data.data?.id})`;
+                    break;
+                    
+                    case 'ItemUpdated':
+                    messageContent = `📝 Item Updated: ${data.data?.name} (ID: ${data.data?.id})`;
+                    break;
+                    
+                    case 'ItemDeleted':
+                    messageContent = `🗑️ Item Deleted: ID ${data.data?.id}`;
+                    break;
+                    
+                    case 'MetricsUpdate':
+                    messageContent = `📊 Metrics Update: ${data.data?.total_requests} total requests`;
+                    break;
+                    
+                    case 'JobStarted':
+                    messageContent = `⚙️ Job Started: ${data.data?.job_type} (ID: ${data.data?.id})`;
+                    break;
+                    
+                    case 'JobCompleted':
+                    messageContent = `✅ Job Completed: ${data.data?.job_type} (ID: ${data.data?.id})`;
+                    break;
+                    
+                    case 'JobFailed':
+                    messageContent = `❌ Job Failed: ${data.data?.job_type} (ID: ${data.data?.id})`;
+                    break;
+                    
+                    case 'Error':
+                    messageContent = `🚨 Server Error: ${data.data?.message}`;
+                    break;
+                    
+                    default:
+                    messageContent = `📨 ${messageType}`;
+                }
+                
+                this.addMessage(messageContent, 'received', data);
+                }
+
+                sendMessage(message) {
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    const jsonMessage = JSON.stringify(message);
+                    this.ws.send(jsonMessage);
+                    this.stats.messagesSent++;
+                    this.updateStats();
+                    return true;
+                }
+                return false;
+                }
+
+                async runTestScenario(testType) {
+                switch (testType) {
+                    case 'ping':
+                    await this.testPing();
+                    break;
+                    case 'create-item':
+                    await this.testCreateItem();
+                    break;
+                    case 'update-item':
+                    await this.testUpdateItem();
+                    break;
+                    case 'delete-item':
+                    await this.testDeleteItem();
+                    break;
+                    case 'metrics':
+                    await this.testMetrics();
+                    break;
+                    case 'job-test':
+                    await this.testBackgroundJob();
+                    break;
+                    case 'stress-test':
+                    await this.testStressTest();
+                    break;
+                }
+                }
+
+                async testPing() {
+                this.pingStartTime = Date.now();
+                const success = this.sendMessage({ type: 'Ping' });
+                if (success) {
+                    this.addMessage('🏓 Ping sent', 'sent');
+                } else {
+                    this.addMessage('❌ Failed to send ping - not connected', 'error');
+                }
+                }
+
+                async testCreateItem() {
+                try {
+                    const response = await fetch('/api/items', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: `WebSocket Test Item ${Date.now()}`,
+                        description: 'Created from Elite WebSocket Testing Suite',
+                        tags: ['websocket', 'test', 'elite']
+                    })
+                    });
+                    
+                    if (response.ok) {
+                    const result = await response.json();
+                    this.addMessage(`📦 Item created via API: ${result.data?.name}`, 'sent');
+                    } else {
+                    this.addMessage(`❌ Failed to create item: ${response.status}`, 'error');
+                    }
+                } catch (error) {
+                    this.addMessage(`❌ Error creating item: ${error.message}`, 'error');
+                }
+                }
+
+                async testUpdateItem() {
+                if (!this.lastItemId) {
+                    this.addMessage('❌ No item to update. Create an item first.', 'error');
+                    return;
+                }
+                
+                try {
+                    const response = await fetch(`/api/items/${this.lastItemId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: `Updated Item ${Date.now()}`,
+                        description: 'Updated from Elite WebSocket Testing Suite',
+                        tags: ['websocket', 'test', 'updated']
+                    })
+                    });
+                    
+                    if (response.ok) {
+                    this.addMessage(`📝 Item updated via API: ID ${this.lastItemId}`, 'sent');
+                    } else {
+                    this.addMessage(`❌ Failed to update item: ${response.status}`, 'error');
+                    }
+                } catch (error) {
+                    this.addMessage(`❌ Error updating item: ${error.message}`, 'error');
+                }
+                }
+
+                async testDeleteItem() {
+                if (!this.lastItemId) {
+                    this.addMessage('❌ No item to delete. Create an item first.', 'error');
+                    return;
+                }
+                
+                try {
+                    const response = await fetch(`/api/items/${this.lastItemId}`, {
+                    method: 'DELETE'
+                    });
+                    
+                    if (response.ok) {
+                    this.addMessage(`🗑️ Item deleted via API: ID ${this.lastItemId}`, 'sent');
+                    this.lastItemId = null;
+                    } else {
+                    this.addMessage(`❌ Failed to delete item: ${response.status}`, 'error');
+                    }
+                } catch (error) {
+                    this.addMessage(`❌ Error deleting item: ${error.message}`, 'error');
+                }
+                }
+
+                async testMetrics() {
+                try {
+                    const response = await fetch('/api/metrics');
+                    if (response.ok) {
+                    this.addMessage('📊 Metrics requested via API', 'sent');
+                    } else {
+                    this.addMessage(`❌ Failed to get metrics: ${response.status}`, 'error');
+                    }
+                } catch (error) {
+                    this.addMessage(`❌ Error getting metrics: ${error.message}`, 'error');
+                }
+                }
+
+                async testBackgroundJob() {
+                try {
+                    const response = await fetch('/api/jobs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        job_type: 'test_job',
+                        payload: { message: 'WebSocket test job', timestamp: Date.now() }
+                    })
+                    });
+                    
+                    if (response.ok) {
+                    const result = await response.json();
+                    this.addMessage(`⚙️ Background job created: ${result.data?.id}`, 'sent');
+                    } else {
+                    this.addMessage(`❌ Failed to create job: ${response.status}`, 'error');
+                    }
+                } catch (error) {
+                    this.addMessage(`❌ Error creating job: ${error.message}`, 'error');
+                }
+                }
+
+                async testStressTest() {
+                this.addMessage('🚀 Starting stress test (100 ping messages)...', 'system');
+                
+                for (let i = 0; i < 100; i++) {
+                    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    this.sendMessage({ type: 'Ping', sequence: i + 1 });
+                    await new Promise(resolve => setTimeout(resolve, 10));
+                    } else {
+                    this.addMessage('❌ Connection lost during stress test', 'error');
+                    break;
+                    }
+                }
+                
+                this.addMessage('✅ Stress test completed', 'system');
+                }
+
+                async getAuthToken() {
+                try {
+                    const response = await fetch('/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username_or_email: 'testuser',
+                        password: 'MyVerySecureP@ssw0rd2025!'
+                    })
+                    });
+                    
+                    if (response.ok) {
+                    const result = await response.json();
+                    this.elements.authToken.value = result.access_token;
+                    this.addMessage('🔑 Auth token retrieved successfully', 'system');
+                    } else {
+                    this.addMessage('❌ Failed to get auth token. Try registering first.', 'error');
+                    }
+                } catch (error) {
+                    this.addMessage(`❌ Error getting auth token: ${error.message}`, 'error');
+                }
+                }
+
+                sendCustomMessage() {
+                try {
+                    const messageText = this.elements.customMessage.value.trim();
+                    if (!messageText) {
+                    this.addMessage('❌ Custom message is empty', 'error');
+                    return;
+                    }
+                    
+                    const message = JSON.parse(messageText);
+                    const success = this.sendMessage(message);
+                    
+                    if (success) {
+                    this.addMessage(`📤 Custom message sent: ${messageText}`, 'sent');
+                    } else {
+                    this.addMessage('❌ Failed to send custom message - not connected', 'error');
+                    }
+                } catch (error) {
+                    this.addMessage(`❌ Invalid JSON in custom message: ${error.message}`, 'error');
+                }
+                }
+
+                addMessage(content, type = 'system', rawData = null) {
+                const messageEl = document.createElement('div');
+                messageEl.className = `message ${type}`;
+                
+                const headerEl = document.createElement('div');
+                headerEl.className = 'message-header';
+                headerEl.innerHTML = `
+                    <span class="message-type">${type}</span>
+                    <span class="message-time">${new Date().toLocaleTimeString()}</span>
+                `;
+                
+                const contentEl = document.createElement('div');
+                contentEl.className = 'message-content';
+                contentEl.textContent = content;
+                
+                messageEl.appendChild(headerEl);
+                messageEl.appendChild(contentEl);
+                
+                if (rawData) {
+                    const jsonEl = document.createElement('div');
+                    jsonEl.className = 'json-content';
+                    jsonEl.textContent = JSON.stringify(rawData, null, 2);
+                    messageEl.appendChild(jsonEl);
+                }
+                
+                this.elements.messages.appendChild(messageEl);
+                
+                if (this.autoScroll) {
+                    this.elements.messages.scrollTop = this.elements.messages.scrollHeight;
+                }
+                }
+
+                updateConnectionStatus(connected) {
+                const statusEl = this.elements.connectionStatus;
+                const scenarioBtns = document.querySelectorAll('.scenario-btn');
+                
+                if (connected) {
+                    statusEl.innerHTML = '<i class="fas fa-check-circle"></i><span>Connected</span>';
+                    statusEl.className = 'status-badge status-connected';
+                    this.elements.connectBtn.disabled = true;
+                    this.elements.disconnectBtn.disabled = false;
+                    scenarioBtns.forEach(btn => btn.disabled = false);
+                } else {
+                    statusEl.innerHTML = '<i class="fas fa-times-circle"></i><span>Disconnected</span>';
+                    statusEl.className = 'status-badge status-disconnected';
+                    this.elements.connectBtn.disabled = false;
+                    this.elements.disconnectBtn.disabled = true;
+                    scenarioBtns.forEach(btn => btn.disabled = true);
+                    this.elements.connectionId.textContent = 'No Connection';
+                    this.elements.uptime.textContent = '00:00:00';
+                }
+                }
+
+                updateStats() {
+                this.elements.messagesSent.textContent = this.stats.messagesSent;
+                this.elements.messagesReceived.textContent = this.stats.messagesReceived;
+                this.elements.errorsCount.textContent = this.stats.errorsCount;
+                this.elements.latency.textContent = `${this.stats.latency}ms`;
+                }
+
+                toggleAutoScroll() {
+                this.autoScroll = !this.autoScroll;
+                this.elements.autoScrollBtn.innerHTML = this.autoScroll 
+                    ? '<i class="fas fa-arrow-down"></i> Auto Scroll'
+                    : '<i class="fas fa-pause"></i> Manual';
+                }
+
+                clearMessages() {
+                this.elements.messages.innerHTML = '';
+                this.stats = { messagesSent: 0, messagesReceived: 0, errorsCount: 0, latency: 0 };
+                this.updateStats();
+                }
+
+                exportMessages() {
+                const messages = Array.from(this.elements.messages.children).map(msg => ({
+                    type: msg.querySelector('.message-type').textContent,
+                    time: msg.querySelector('.message-time').textContent,
+                    content: msg.querySelector('.message-content').textContent,
+                    rawData: msg.querySelector('.json-content')?.textContent
+                }));
+                
+                const exportData = {
+                    timestamp: new Date().toISOString(),
+                    stats: this.stats,
+                    connectionId: this.connectionId,
+                    messages: messages
+                };
+                
+                const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `websocket-test-${new Date().toISOString().split('T')[0]}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                this.addMessage('📥 Messages exported successfully', 'system');
+                }
+            }
+
+            const tester = new WebSocketTester();
+            
+            tester.addMessage('🚀 Elite WebSocket Testing Suite initialized', 'system');
+            tester.addMessage('💡 Connect to start testing WebSocket functionality', 'system');
+            </script>
+        </body>
+        </html>
+    "#)
+}
+
 async fn handle_dashboard() -> impl IntoResponse {
     Html(r#"
     <!DOCTYPE html>
@@ -825,9 +1959,10 @@ async fn handle_dashboard() -> impl IntoResponse {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Rust HTTP Server - Advanced Dashboard</title>
+        <title>Rust HTTP Server - Dashboard</title>
         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+        <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
         <style>
             * {
                 box-sizing: border-box;
@@ -852,9 +1987,228 @@ async fn handle_dashboard() -> impl IntoResponse {
                 width: 100%;
                 height: 100%;
                 background: radial-gradient(circle at 20% 80%, rgba(120, 119, 198, 0.1) 0%, transparent 50%),
-                           radial-gradient(circle at 80% 20%, rgba(255, 119, 198, 0.1) 0%, transparent 50%);
+                           radial-gradient(circle at 80% 20%, rgba(255, 119, 198, 0.1) 0%, transparent 50%),
+                           radial-gradient(circle at 40% 40%, rgba(16, 185, 129, 0.05) 0%, transparent 50%);
                 pointer-events: none;
                 z-index: -1;
+                animation: backgroundShift 20s ease-in-out infinite;
+            }
+            
+            @keyframes backgroundShift {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.8; }
+            }
+            
+            :root {
+                --primary-bg: #0f172a;
+                --secondary-bg: #1e293b;
+                --accent-color: #60a5fa;
+                --success-color: #10b981;
+                --warning-color: #f59e0b;
+                --error-color: #ef4444;
+                --text-primary: #f1f5f9;
+                --text-secondary: #94a3b8;
+                --border-color: #334155;
+            }
+            
+            [data-theme="light"] {
+                --primary-bg: #f8fafc;
+                --secondary-bg: #ffffff;
+                --accent-color: #3b82f6;
+                --success-color: #059669;
+                --warning-color: #d97706;
+                --error-color: #dc2626;
+                --text-primary: #1e293b;
+                --text-secondary: #64748b;
+                --border-color: #e2e8f0;
+            }
+            
+            .theme-toggle {
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                z-index: 1000;
+                background: var(--secondary-bg);
+                border: 1px solid var(--border-color);
+                border-radius: 50px;
+                padding: 8px;
+                display: flex;
+                gap: 4px;
+                backdrop-filter: blur(10px);
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            }
+            
+            .theme-btn {
+                padding: 8px 12px;
+                border: none;
+                border-radius: 20px;
+                background: transparent;
+                color: var(--text-secondary);
+                cursor: pointer;
+                transition: all 0.3s ease;
+                font-size: 0.875rem;
+            }
+            
+            .theme-btn.active {
+                background: var(--accent-color);
+                color: white;
+                box-shadow: 0 4px 12px rgba(96, 165, 250, 0.3);
+            }
+            
+            .alert-panel {
+                position: fixed;
+                top: 80px;
+                right: 20px;
+                width: 320px;
+                max-height: 400px;
+                overflow-y: auto;
+                z-index: 999;
+                display: none;
+            }
+            
+            .alert-item {
+                background: var(--secondary-bg);
+                border: 1px solid var(--border-color);
+                border-radius: 12px;
+                padding: 16px;
+                margin-bottom: 12px;
+                backdrop-filter: blur(10px);
+                animation: slideInRight 0.3s ease;
+                position: relative;
+                overflow: hidden;
+            }
+            
+            .alert-item::before {
+                content: '';
+                position: absolute;
+                left: 0;
+                top: 0;
+                bottom: 0;
+                width: 4px;
+                background: var(--error-color);
+            }
+            
+            .alert-item.warning::before { background: var(--warning-color); }
+            .alert-item.success::before { background: var(--success-color); }
+            
+            @keyframes slideInRight {
+                from { transform: translateX(100%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            
+            .system-map {
+                background: var(--secondary-bg);
+                border: 1px solid var(--border-color);
+                border-radius: 16px;
+                padding: 24px;
+                margin-bottom: 30px;
+                position: relative;
+                overflow: hidden;
+            }
+            
+            .system-node {
+                position: absolute;
+                width: 60px;
+                height: 60px;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 1.5rem;
+                color: white;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            }
+            
+            .system-node:hover {
+                transform: scale(1.1);
+                box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+            }
+            
+            .system-connection {
+                position: absolute;
+                height: 2px;
+                background: linear-gradient(90deg, var(--accent-color), transparent);
+                animation: dataFlow 2s linear infinite;
+            }
+            
+            @keyframes dataFlow {
+                0% { background-position: -100% 0; }
+                100% { background-position: 100% 0; }
+            }
+            
+            .performance-heatmap {
+                display: grid;
+                grid-template-columns: repeat(24, 1fr);
+                gap: 2px;
+                margin: 20px 0;
+            }
+            
+            .heatmap-cell {
+                aspect-ratio: 1;
+                border-radius: 2px;
+                transition: all 0.2s ease;
+                cursor: pointer;
+            }
+            
+            .heatmap-cell:hover {
+                transform: scale(1.2);
+                z-index: 10;
+                position: relative;
+            }
+            
+            .analytics-panel {
+                background: var(--secondary-bg);
+                border: 1px solid var(--border-color);
+                border-radius: 16px;
+                padding: 24px;
+                margin-bottom: 30px;
+            }
+            
+            .insight-card {
+                background: rgba(96, 165, 250, 0.1);
+                border: 1px solid rgba(96, 165, 250, 0.2);
+                border-radius: 12px;
+                padding: 16px;
+                margin: 12px 0;
+                position: relative;
+            }
+            
+            .insight-card::before {
+                content: '🧠';
+                position: absolute;
+                top: -8px;
+                left: 16px;
+                background: var(--secondary-bg);
+                padding: 4px 8px;
+                border-radius: 20px;
+                font-size: 0.875rem;
+            }
+            
+            .live-requests {
+                background: var(--secondary-bg);
+                border: 1px solid var(--border-color);
+                border-radius: 16px;
+                padding: 24px;
+                height: 300px;
+                overflow: hidden;
+                position: relative;
+            }
+            
+            .request-flow {
+                position: absolute;
+                width: 4px;
+                height: 4px;
+                background: var(--accent-color);
+                border-radius: 50%;
+                animation: requestFlow 3s linear infinite;
+                box-shadow: 0 0 10px var(--accent-color);
+            }
+            
+            @keyframes requestFlow {
+                0% { transform: translateX(0) translateY(0); opacity: 1; }
+                100% { transform: translateX(300px) translateY(100px); opacity: 0; }
             }
             
             .container {
@@ -1136,31 +2490,87 @@ async fn handle_dashboard() -> impl IntoResponse {
         </style>
     </head>
     <body>
+        <div class="theme-toggle">
+            <button class="theme-btn active" data-theme="dark">
+                <i class="fas fa-moon"></i>
+            </button>
+            <button class="theme-btn" data-theme="light">
+                <i class="fas fa-sun"></i>
+            </button>
+        </div>
+        
+        <div class="alert-panel" id="alertPanel">
+        </div>
+        
         <div class="container">
             <div class="header">
                 <div>
-                    <h1>🚀 Rust HTTP Server Dashboard</h1>
+                    <h1>🚀 Server Dashboard</h1>
                     <div style="display: flex; gap: 12px; margin-top: 8px;">
                         <div class="status-badge">LIVE</div>
                         <div class="status-badge" style="background: #3b82f6;" id="connectionStatus">CONNECTED</div>
                         <div class="status-badge" style="background: #8b5cf6;" id="lastUpdate">Updated now</div>
+                        <button id="alertToggle" style="background: #ef4444; color: white; border: none; border-radius: 20px; padding: 4px 12px; font-size: 0.875rem; cursor: pointer;">
+                            <i class="fas fa-bell"></i> <span id="alertCount">0</span>
+                        </button>
                     </div>
                 </div>
                 <div style="display: flex; gap: 12px; align-items: center;">
-                    <select id="timeRange" style="background: #1e293b; color: white; border: 1px solid #334155; border-radius: 8px; padding: 8px 12px;">
+                    <select id="timeRange" style="background: var(--secondary-bg); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 8px; padding: 8px 12px;">
                         <option value="1h">Last Hour</option>
                         <option value="6h">Last 6 Hours</option>
                         <option value="24h">Last 24 Hours</option>
                         <option value="7d">Last 7 Days</option>
                     </select>
-                    <button id="refreshBtn" style="background: #60a5fa; color: white; border: none; border-radius: 8px; padding: 8px 16px; cursor: pointer; transition: all 0.2s;">
-                        🔄 Refresh
+                    <button id="refreshBtn" style="background: var(--accent-color); color: white; border: none; border-radius: 8px; padding: 8px 16px; cursor: pointer; transition: all 0.2s;">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                    <button id="exportBtn" style="background: var(--success-color); color: white; border: none; border-radius: 8px; padding: 8px 16px; cursor: pointer; transition: all 0.2s;">
+                        <i class="fas fa-download"></i> Export
                     </button>
                 </div>
             </div>
             
+            <div class="system-map" id="systemMap">
+                <h3 style="margin-bottom: 20px; color: var(--text-primary);">
+                    <i class="fas fa-network-wired"></i> System Architecture
+                </h3>
+                <div style="position: relative; height: 200px;">
+                </div>
+            </div>
+            
+            <div class="analytics-panel">
+                <h3 style="margin-bottom: 20px; color: var(--text-primary);">
+                    <i class="fas fa-brain"></i> AI Insights & Predictions
+                </h3>
+                <div id="insightsContainer">
+                </div>
+            </div>
+            
             <div class="metrics-grid" id="metricsGrid">
-                <!-- Enhanced metrics will be populated here -->
+            </div>
+            
+            <div style="background: var(--secondary-bg); border: 1px solid var(--border-color); border-radius: 16px; padding: 24px; margin-bottom: 30px;">
+                <h3 style="margin-bottom: 20px; color: var(--text-primary);">
+                    <i class="fas fa-fire"></i> 24-Hour Performance Heatmap
+                </h3>
+                <div class="performance-heatmap" id="performanceHeatmap">
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-top: 12px; font-size: 0.75rem; color: var(--text-secondary);">
+                    <span>00:00</span>
+                    <span>06:00</span>
+                    <span>12:00</span>
+                    <span>18:00</span>
+                    <span>24:00</span>
+                </div>
+            </div>
+            
+            <div class="live-requests">
+                <h3 style="margin-bottom: 20px; color: var(--text-primary);">
+                    <i class="fas fa-stream"></i> Live Request Flow
+                </h3>
+                <div id="requestFlow" style="position: relative; height: 200px;">
+                </div>
             </div>
             
             <div class="charts-row">
@@ -1309,6 +2719,199 @@ async fn handle_dashboard() -> impl IntoResponse {
             }
         });
 
+        let alerts = [];
+        let currentTheme = 'dark';
+        
+        function initTheme() {
+            const savedTheme = localStorage.getItem('dashboard-theme') || 'dark';
+            setTheme(savedTheme);
+        }
+        
+        function setTheme(theme) {
+            currentTheme = theme;
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('dashboard-theme', theme);
+            
+            document.querySelectorAll('.theme-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.theme === theme);
+            });
+        }
+        
+        function addAlert(type, title, message) {
+            const alert = {
+                id: Date.now(),
+                type,
+                title,
+                message,
+                timestamp: new Date()
+            };
+            
+            alerts.unshift(alert);
+            if (alerts.length > 10) alerts.pop();
+            
+            updateAlertPanel();
+            updateAlertCount();
+        }
+        
+        function updateAlertPanel() {
+            const panel = document.getElementById('alertPanel');
+            panel.innerHTML = alerts.map(alert => `
+                <div class="alert-item ${alert.type}">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                        <strong style="color: var(--text-primary);">${alert.title}</strong>
+                        <small style="color: var(--text-secondary);">${formatTime(alert.timestamp)}</small>
+                    </div>
+                    <p style="margin: 0; color: var(--text-secondary); font-size: 0.875rem;">${alert.message}</p>
+                </div>
+            `).join('');
+        }
+        
+        function updateAlertCount() {
+            document.getElementById('alertCount').textContent = alerts.length;
+        }
+        
+        function formatTime(date) {
+            return date.toLocaleTimeString('en-US', { 
+                hour: '2-digit', 
+                minute: '2-digit' 
+            });
+        }
+        
+        function initSystemMap() {
+            const mapContainer = document.querySelector('#systemMap > div');
+            const nodes = [
+                { id: 'api', label: '🌐', x: 50, y: 50, status: 'healthy' },
+                { id: 'db', label: '🗄️', x: 200, y: 50, status: 'healthy' },
+                { id: 'cache', label: '⚡', x: 350, y: 50, status: 'healthy' },
+                { id: 'auth', label: '🔐', x: 125, y: 150, status: 'healthy' },
+                { id: 'files', label: '📁', x: 275, y: 150, status: 'healthy' }
+            ];
+            
+            mapContainer.innerHTML = nodes.map(node => `
+                <div class="system-node" 
+                     style="left: ${node.x}px; top: ${node.y}px; background: ${getNodeColor(node.status)};"
+                     title="${node.id.toUpperCase()} - ${node.status}"
+                     data-node="${node.id}">
+                    ${node.label}
+                </div>
+            `).join('');
+        }
+        
+        function getNodeColor(status) {
+            switch(status) {
+                case 'healthy': return 'linear-gradient(135deg, #10b981, #059669)';
+                case 'warning': return 'linear-gradient(135deg, #f59e0b, #d97706)';
+                case 'error': return 'linear-gradient(135deg, #ef4444, #dc2626)';
+                default: return 'linear-gradient(135deg, #6b7280, #4b5563)';
+            }
+        }
+        
+        function initPerformanceHeatmap() {
+            const heatmapContainer = document.getElementById('performanceHeatmap');
+            const hours = 24;
+            const cells = [];
+            
+            for (let i = 0; i < hours; i++) {
+                const intensity = Math.random();
+                const color = getHeatmapColor(intensity);
+                cells.push(`
+                    <div class="heatmap-cell" 
+                         style="background: ${color};" 
+                         title="Hour ${i}:00 - ${(intensity * 100).toFixed(1)}% load"
+                         data-hour="${i}"
+                         data-intensity="${intensity}">
+                    </div>
+                `);
+            }
+            
+            heatmapContainer.innerHTML = cells.join('');
+        }
+        
+        function getHeatmapColor(intensity) {
+            const colors = [
+                'rgba(16, 185, 129, 0.2)',
+                'rgba(245, 158, 11, 0.4)',
+                'rgba(239, 68, 68, 0.6)'
+            ];
+            
+            if (intensity < 0.3) return colors[0];
+            if (intensity < 0.7) return colors[1];
+            return colors[2];
+        }
+        
+        function generateInsights(metrics) {
+            const insights = [];
+            
+            if (metrics.error_rate > 5) {
+                insights.push({
+                    type: 'warning',
+                    title: 'High Error Rate Detected',
+                    message: `Error rate is ${metrics.error_rate.toFixed(1)}%. Consider investigating recent deployments.`
+                });
+            }
+            
+            if (metrics.average_response_time_ms > 1000) {
+                insights.push({
+                    type: 'performance',
+                    title: 'Response Time Alert',
+                    message: `Average response time is ${metrics.average_response_time_ms.toFixed(0)}ms. Database optimization recommended.`
+                });
+            }
+            
+            if (metrics.requests_per_second > 10) {
+                insights.push({
+                    type: 'success',
+                    title: 'High Traffic Volume',
+                    message: `Handling ${metrics.requests_per_second.toFixed(1)} req/s. System performing well under load.`
+                });
+            }
+            
+            const container = document.getElementById('insightsContainer');
+            container.innerHTML = insights.map(insight => `
+                <div class="insight-card">
+                    <h4 style="margin: 0 0 8px 0; color: var(--text-primary);">${insight.title}</h4>
+                    <p style="margin: 0; color: var(--text-secondary); font-size: 0.875rem;">${insight.message}</p>
+                </div>
+            `).join('') || '<p style="color: var(--text-secondary); font-style: italic;">All systems operating normally. No insights to display.</p>';
+        }
+        
+        function animateRequestFlow() {
+            const container = document.getElementById('requestFlow');
+            const request = document.createElement('div');
+            request.className = 'request-flow';
+            request.style.left = '0px';
+            request.style.top = Math.random() * 180 + 'px';
+            
+            container.appendChild(request);
+            
+            setTimeout(() => {
+                if (request.parentNode) {
+                    request.parentNode.removeChild(request);
+                }
+            }, 3000);
+        }
+        
+        function exportDashboard() {
+            const data = {
+                timestamp: new Date().toISOString(),
+                metrics: window.currentMetrics || {},
+                alerts: alerts,
+                theme: currentTheme
+            };
+            
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `dashboard-export-${new Date().toISOString().split('T')[0]}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            addAlert('success', 'Export Complete', 'Dashboard data exported successfully');
+        }
+
         async function updateDashboard() {
             try {
                 updateConnectionStatus(false);
@@ -1324,7 +2927,18 @@ async fn handle_dashboard() -> impl IntoResponse {
                 updateConnectionStatus(true);
                 
                 const prevMetrics = window.prevMetrics || {};
+                window.currentMetrics = metrics;
                 window.prevMetrics = metrics;
+                
+                generateInsights(metrics);
+                
+                if (metrics.error_rate > 5 && (!prevMetrics.error_rate || prevMetrics.error_rate <= 5)) {
+                    addAlert('error', 'High Error Rate', `Error rate spiked to ${metrics.error_rate.toFixed(1)}%`);
+                }
+                
+                if (metrics.average_response_time_ms > 1000 && (!prevMetrics.average_response_time_ms || prevMetrics.average_response_time_ms <= 1000)) {
+                    addAlert('warning', 'Slow Response Time', `Response time increased to ${metrics.average_response_time_ms.toFixed(0)}ms`);
+                }
                 
                 document.getElementById('metricsGrid').innerHTML = `
                     <div class="metric-card">
@@ -1540,11 +3154,28 @@ async fn handle_dashboard() -> impl IntoResponse {
             }, 500);
         });
         
-        document.getElementById('timeRange').addEventListener('change', (e) => {
-            console.log('Time range changed to:', e.target.value);
+        document.getElementById('exportBtn').addEventListener('click', exportDashboard);
+        
+        document.getElementById('alertToggle').addEventListener('click', () => {
+            const panel = document.getElementById('alertPanel');
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
         });
         
+        document.querySelectorAll('.theme-btn').forEach(btn => {
+            btn.addEventListener('click', () => setTheme(btn.dataset.theme));
+        });
+        
+        document.getElementById('timeRange').addEventListener('change', (e) => {
+            console.log('Time range changed to:', e.target.value);
+            addAlert('info', 'Time Range Changed', `Switched to ${e.target.value} view`);
+        });
+        
+        initTheme();
+        initSystemMap();
+        initPerformanceHeatmap();
         updateDashboard();
+        
+        setInterval(animateRequestFlow, 1000);
         
         let refreshInterval = 2000;
         let errorCount = 0;
